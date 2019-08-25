@@ -5,7 +5,7 @@ all the necessary packages to run the app. (check .gitignore under consensus-vis
 
 Thus, to run the app once you have cloned follow these steps:
 
-1. Open command line and cd to the cloned directory
+1. Open command line and cd to consensus_viz under the cloned directory
 
 2. Make sure you have NPM installed on your computer before proceeding.
 
