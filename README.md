@@ -30,4 +30,4 @@ Prerequisites:
     npm start
     ```
 
-    to run the website live on your computer. Anytime you save the fileS in this app, the website reflects those changes.
+    to run the website live on your computer. Anytime you save the files in this app, the website reflects those changes.
