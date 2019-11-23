@@ -4,6 +4,7 @@ import anime from "animejs";
 
 // TODO: Change to Message.css later.
 import "./Node.css";
+import {ctod, dtoc} from './Util';
 
 class Message extends React.Component {
 	constructor(props) {
@@ -12,6 +13,7 @@ class Message extends React.Component {
 			id: props.id,
 			initX: props.startX,
 			initY: props.startY,
+            radius: 10,
 		}
   	}
 
@@ -24,9 +26,9 @@ class Message extends React.Component {
 
 	anime = () => {
 		anime({
-			targets: ".msg" + this.state.id,
-			cx: this.props.msgControlX,
-			cy: this.props.msgControlY,
+			targets: "#msg-" + this.props.id,
+            translateX: this.props.msgControlX - this.props.startX,
+            translateY: this.props.msgControlY - this.props.startY,
 			easing: 'linear',
 			duration: 1000,
 			begin: function() {
@@ -37,8 +39,12 @@ class Message extends React.Component {
 	};
 
 	render() {
+        var hw = this.state.radius * 2;
+
+        var div_coords = ctod(this.state.initX, this.state.initY, this.state.radius);
+
 		return (
-			<circle className={"msg" + this.state.id} cx={this.state.initX} cy={this.state.initY} fill="white" r="10" stroke="black" strokeWidth="5"/>
+			<div className="circle" id={"msg-" + this.props.id} style={{position: 'absolute', width: hw, height: hw, left: div_coords.dist_left, top: div_coords.dist_top, background: "white"}}/>
 		);
 	}
 }

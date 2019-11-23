@@ -35,16 +35,11 @@ const NodeList = ({ num_nodes }) => {
 	for (var i=0; i<num_nodes; i++) {
 		var next = (i + 1) % num_nodes;
 
-        var tmp = serverCoords[i];
-
-        /*
 		list.push(<Node key={i+1} id={i} 
 		centX = {serverCoords[i].coordX} 
 		centY = {serverCoords[i].coordY}
 		nextX = {serverCoords[next].coordX}
 		nextY = {serverCoords[next].coordY}/>);
-	    */
-        list.push(<Node id={i} centX={tmp.coordX} centY={tmp.coordY}/>);
     }
 
     var background_circle_coords = ctod(centerX, centerY, radius);

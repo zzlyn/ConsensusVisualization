@@ -46,7 +46,11 @@ class Node extends React.Component {
         var hw = this.state.nodeRadius * 2;
 
         return (
-		    <div className="circle" style={{position: 'absolute', width: hw, height: hw, left: div_coords.dist_left, top: div_coords.dist_top, background: "#8da0cb"}}/>
+            <div>
+		        <div className="circle" onClick={() => this.sendMessage()}
+                    style={{position: 'absolute', width: hw, height: hw, left: div_coords.dist_left, top: div_coords.dist_top, background: "#8da0cb"}}/>
+                <Message id={this.state.id} startX={this.state.centX} startY={this.state.centY} msgControlX={this.state.messageX} msgControlY={this.state.messageY} onMessageArrival={this.recycleMessage} />
+            </div>
         );
 
 	}
