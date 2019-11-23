@@ -44,7 +44,7 @@ class Message extends React.Component {
         var div_coords = ctod(this.state.initX, this.state.initY, this.state.radius);
 
 		return (
-			<div className="circle" id={"msg-" + this.props.id} style={{position: 'absolute', width: hw, height: hw, left: div_coords.dist_left, top: div_coords.dist_top, background: "white"}}/>
+			<div className="circle" id={"msg-" + this.props.id} style={{position: 'absolute', zIndex: "10", width: hw, height: hw, left: div_coords.dist_left, top: div_coords.dist_top, background: "white"}}/>
 		);
 	}
 }

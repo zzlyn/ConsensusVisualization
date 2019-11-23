@@ -6,6 +6,8 @@ import {ctod, dtoc} from './Util';
 
 class Node extends React.Component {
 	messageSent = false;
+    
+    display_msg = false;
 
 	constructor(props) {
 		super();
@@ -27,17 +29,15 @@ class Node extends React.Component {
 	}
 
 	sendMessage() {
-		this.setState({ messageX: this.state.nextX, messageY: this.state.nextY })
-		this.messageSent = true;
+        this.display_msg = true;
+		this.setState({ messageX: this.state.nextX, messageY: this.state.nextY });
 	}
 	
 	// Test method for message callback.
 	recycleMessage() {
-		if (this.messageSent) {
-			this.setState({ messageX: this.state.centX, messageY: this.state.centY })
-		}
-		this.messageSent = false;
-	}
+        this.setState({ messageX: this.state.centX, messageY: this.state.centY });
+        this.display_msg = false;
+    }
 
 	render() {
 		
@@ -49,7 +49,7 @@ class Node extends React.Component {
             <div>
 		        <div className="circle" onClick={() => this.sendMessage()}
                     style={{position: 'absolute', width: hw, height: hw, left: div_coords.dist_left, top: div_coords.dist_top, background: "#8da0cb"}}/>
-                <Message id={this.state.id} startX={this.state.centX} startY={this.state.centY} msgControlX={this.state.messageX} msgControlY={this.state.messageY} onMessageArrival={this.recycleMessage} />
+                {this.display_msg && <Message id={this.state.id} startX={this.state.centX} startY={this.state.centY} msgControlX={this.state.messageX} msgControlY={this.state.messageY} onMessageArrival={this.recycleMessage} />}
             </div>
         );
 
