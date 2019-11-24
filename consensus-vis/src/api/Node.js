@@ -11,7 +11,6 @@ class Node extends React.Component {
   constructor(props) {
     super();
     this.state = {
-      id: props.id,
       // Node self states.
       centX: props.centX,
       centY: props.centY,
@@ -58,7 +57,7 @@ class Node extends React.Component {
           />
           {this.shouldDisplayMessage &&
             <Message
-              id={this.state.id}
+              id={this.props.id}
               startX={this.state.centX}
               startY={this.state.centY}
               msgControlX={this.state.messageX}
