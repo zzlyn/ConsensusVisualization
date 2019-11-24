@@ -18,6 +18,16 @@ const nodeTypes = {
   CRASHED: "crashed"
 }
 
+// TODO: can bring this to the generic Node, given a nodeTypes which is specific to the algorithm.
+const NodeTypeSelect = ({value, handleChange}) => {
+  let options = Object.values(nodeTypes).map((item) => {
+    return <option value={item}>{item}</option>;
+  });
+  return <select value={value} onChange={handleChange}>
+    {options}
+  </select>
+}
+
 class RaftNode extends React.Component {
   constructor(props) {
     super(props);
@@ -45,13 +55,21 @@ class RaftNode extends React.Component {
     }
   }
 
+  handleSelectTypeChange = (e) => {
+    this.setState({type: e.target.value});
+  }
+
   render() {
     return <Node
         centX = {this.props.centX}
         centY = {this.props.centY}
         nextX = {this.props.nextX}
         nextY = {this.props.nextY}
-      ><p>Raft: {this.state.type}</p></Node>
+      >
+        {/*Test passing an element through the Node element*/}
+        <div>Raft: {this.state.type}</div>
+        <NodeTypeSelect value={this.state.type} handleChange={(e) => this.handleSelectTypeChange(e)} />
+      </Node>
   }
 }
 
