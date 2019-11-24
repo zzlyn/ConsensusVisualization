@@ -9,7 +9,6 @@ class Message extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
-      id: props.id,
       initX: props.startX,
       initY: props.startY,
       radius: 10,
