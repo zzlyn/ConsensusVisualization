@@ -1,9 +1,9 @@
 import React from 'react';
-import Node from './Node';
+import RaftNode from './logic/raft';
 
-import {ctod} from './Util';
+import {ctod} from './api/Util';
 
-const NodeList = ({ num_nodes }) => {
+const NodeList = ({ num_nodes, algorithm }) => {
   // get window height and width (dont want to call window object multiple times)
   const winHeight = window.innerHeight;
   const winWidth = window.innerWidth;
@@ -34,11 +34,19 @@ const NodeList = ({ num_nodes }) => {
   for (let i = 0; i < num_nodes; i++) {
     const next = (i + 1) % num_nodes;
 
-    list.push(<Node key={i+1} id={i}
-    centX = {serverCoords[i].coordX}
-    centY = {serverCoords[i].coordY}
-    nextX = {serverCoords[next].coordX}
-    nextY = {serverCoords[next].coordY}/>);
+    console.log(algorithm);
+
+    list.push(
+        <RaftNode
+          key={i+1}
+          id={i}
+          num_nodes={num_nodes}
+          centX = {serverCoords[i].coordX}
+          centY = {serverCoords[i].coordY}
+          nextX = {serverCoords[next].coordX}
+          nextY = {serverCoords[next].coordY}
+        />
+    );
   }
 
   const background_circle_coords = ctod(centerX, centerY, radius);

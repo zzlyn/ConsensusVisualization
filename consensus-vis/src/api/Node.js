@@ -65,6 +65,7 @@ class Node extends React.Component {
               onMessageArrival={this.recycleMessage}
             />
           }
+          {this.props.children}
         </div>
     );
   }
