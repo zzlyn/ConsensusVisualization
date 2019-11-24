@@ -52,11 +52,15 @@ class RaftNode extends React.Component {
       // {id: rpcDue} map
       // Only set for elected leader
       rpcDue: peers.reduce((map, id) => {map[id] = 0; return map}, {}),
+
+      // Raft-specific display
+      nodeColor: "#8da0cb",
     }
   }
 
   handleSelectTypeChange = (e) => {
-    this.setState({type: e.target.value});
+    const newType = e.target.value;
+    this.setState({type: newType, nodeColor: newType == "leader" ? "#33ff4f": "#8da0cb"});
   }
 
   render() {
@@ -65,6 +69,7 @@ class RaftNode extends React.Component {
         centY = {this.props.centY}
         nextX = {this.props.nextX}
         nextY = {this.props.nextY}
+        nodeColor = {this.state.nodeColor}
       >
         {/*Test passing an element through the Node element*/}
         <div>Raft: {this.state.type}</div>

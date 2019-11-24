@@ -52,7 +52,7 @@ class Node extends React.Component {
               height: hw,
               left: div_coords.dist_left,
               top: div_coords.dist_top,
-              background: "#8da0cb"
+              background: this.props.nodeColor
             }}
           />
           {this.shouldDisplayMessage &&
