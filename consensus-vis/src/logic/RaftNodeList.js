@@ -1,9 +1,9 @@
 import React from 'react';
-import RaftNode from './logic/raft';
+import RaftNode from './raft';
 
-import {ctod} from './api/Util';
+import {ctod} from '../api/Util';
 
-const NodeList = ({ num_nodes, algorithm }) => {
+const RaftNodeList = ({ num_nodes, algorithm }) => {
   // get window height and width (dont want to call window object multiple times)
   const winHeight = window.innerHeight;
   const winWidth = window.innerWidth;
@@ -68,4 +68,4 @@ const NodeList = ({ num_nodes, algorithm }) => {
   );
 }
 
-export default NodeList;
+export default RaftNodeList;
