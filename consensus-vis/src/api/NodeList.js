@@ -30,15 +30,19 @@ const NodeList = ({ num_nodes }) => {
 
   const serverCoords = coordinates(num_nodes, centerX, centerY, radius);
   // a list of node tags that is returned fomr this NodeList function
-  let list = []
+  let list = [];
   for (let i = 0; i < num_nodes; i++) {
     const next = (i + 1) % num_nodes;
 
-    list.push(<Node key={i+1} id={i}
-    centX = {serverCoords[i].coordX}
-    centY = {serverCoords[i].coordY}
-    nextX = {serverCoords[next].coordX}
-    nextY = {serverCoords[next].coordY}/>);
+    list.push(<Node 
+        key={i+1} 
+        id={i}
+        centX = {serverCoords[i].coordX}
+        centY = {serverCoords[i].coordY}
+        nextX = {serverCoords[next].coordX}
+        nextY = {serverCoords[next].coordY}
+        allNodes = {serverCoords.filter(coord => coord.coordX !== serverCoords[i].coordX && coord.coordY !== serverCoords[i].coordY)}
+    />);
   }
 
   const background_circle_coords = ctod(centerX, centerY, radius);

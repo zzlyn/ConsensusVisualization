@@ -22,14 +22,55 @@ class Node extends React.Component {
       // Test temporary destination for updating message control coords.
       nextX: props.nextX,
       nextY: props.nextY,
-    }
 
+      // All other nodes.
+      allNodes: props.allNodes,
+      allMessages: [],
+      allMessageRefs: [],
+    }
+  
     this.recycleMessage = this.recycleMessage.bind(this);
+    this.recycleAllMessages = this.recycleAllMessages.bind(this);
+
+    for(let i = 0; i < this.state.allNodes.length; i++) {
+        let ref = React.createRef();
+        this.state.allMessageRefs.push(ref);
+        this.state.allMessages.push(<Message
+            id={this.state.id * 10 + i}
+            key={i}
+            ref={ref}
+            startX={this.state.centX}
+            startY={this.state.centY}
+            onMessageArrival={this.recycleAllMessages}
+            trigger={this.state.testTrigger}
+        />);
+    }
+}
+
+  sendAllMessages() {
+    this.shouldDisplayMessage = true;
+    this.messageSent = true;
+    for (let i = 0; i < this.state.allMessageRefs.length; i++) {
+        const node = this.state.allNodes[i];
+        if (i === this.state.self_index)
+            continue;
+        this.state.allMessageRefs[i].current.fire(node.coordX, node.coordY);
+    }
   }
 
   sendMessage() {
     this.shouldDisplayMessage = true;
     this.setState({ messageX: this.state.nextX, messageY: this.state.nextY });
+  }
+
+  recycleAllMessages() {
+    if (!this.messageSent)
+          return;
+    this.messageSent = false;
+    for (let ref of this.state.allMessageRefs) {
+        ref.current.fire(this.state.centX, this.state.centY);
+    }
+    this.shouldDisplayMessage = false;
   }
 
   // Test method for message callback.
@@ -46,7 +87,7 @@ class Node extends React.Component {
         <div>
           <div
             className="circle" 
-            onClick={() => this.sendMessage()}
+            onClick={() => this.sendAllMessages()}
             style={{
               position: 'absolute',
               width: hw,
@@ -56,15 +97,8 @@ class Node extends React.Component {
               background: "#8da0cb"
             }}
           />
-          {this.shouldDisplayMessage &&
-            <Message
-              id={this.state.id}
-              startX={this.state.centX}
-              startY={this.state.centY}
-              msgControlX={this.state.messageX}
-              msgControlY={this.state.messageY}
-              onMessageArrival={this.recycleMessage}
-            />
+          {
+           this.state.allMessages
           }
         </div>
     );

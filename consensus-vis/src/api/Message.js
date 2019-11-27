@@ -13,6 +13,8 @@ class Message extends React.Component {
       initX: props.startX,
       initY: props.startY,
       radius: 10,
+      destX: props.startX,
+      destY: props.startY,
     }
   }
 
@@ -23,11 +25,18 @@ class Message extends React.Component {
     this.anime();
   }
 
+  fire = (x, y) => {
+    this.setState({
+        destX: x,
+        destY: y,
+    });
+  }
+
   anime = () => {
     anime({
       targets: "#msg-" + this.props.id,
-      translateX: this.props.msgControlX - this.props.startX,
-      translateY: this.props.msgControlY - this.props.startY,
+      translateX: this.state.destX - this.props.startX,
+      translateY: this.state.destY - this.props.startY,
       easing: 'linear',
       duration: 1000,
       begin: function() {
