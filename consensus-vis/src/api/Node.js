@@ -49,6 +49,8 @@ class Node extends React.Component {
 
   sendAllMessages() {
     this.shouldDisplayMessage = true;
+    if (this.messageSent)
+          return;
     this.messageSent = true;
     for (let i = 0; i < this.state.allMessageRefs.length; i++) {
         const node = this.state.allNodes[i];
