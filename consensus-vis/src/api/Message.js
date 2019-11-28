@@ -10,11 +10,10 @@ class Message extends React.Component {
     super(props);
     this.state = {
       id: props.id,
-      initX: props.startX,
-      initY: props.startY,
+      currentX: props.startX,
+      currentY: props.startY,
       radius: 10,
-      destX: props.startX,
-      destY: props.startY,
+      flying: false,
     }
   }
 
@@ -22,33 +21,51 @@ class Message extends React.Component {
   }
 
   componentDidUpdate() {
-    this.anime();
   }
 
-  fire = (x, y) => {
-    this.setState({
-        destX: x,
-        destY: y,
-    });
-  }
+  fire = (x, y, callback) => {
+    if (this.state.flying) {
+        console.log("Message already on the fly.");
+        return;
+    }
+    
+    this.setState({ flying: true });
 
-  anime = () => {
+    console.log("From X: " + this.state.currentX + " to " + x);
+
     anime({
       targets: "#msg-" + this.props.id,
-      translateX: this.state.destX - this.props.startX,
-      translateY: this.state.destY - this.props.startY,
+      translateX: (x - this.state.currentX),
+      translateY: (y - this.state.currentY),
       easing: 'linear',
       duration: 1000,
       begin: function() {
         console.log("Begin Callback");
       },
-      complete: this.props.onMessageArrival,
+      complete: function() {
+        // Update coordinates once travel completed.
+        this.setState({ currentX: x, currentY: y});
+        this.setState({ flying: false });
+        console.log("Message docked");
+
+        // Execute user defined callback.
+        if (callback != null) {
+            // callback();
+        }
+      }.bind(this),
     });
-  };
+    
+  }
+
+  fireNoCallback = (x, y) => {
+    this.fire(x, y, null);
+  }
 
   render() {
     const hw = this.state.radius * 2;
-    const div_coords = ctod(this.state.initX, this.state.initY, this.state.radius);
+    const div_coords = ctod(this.state.currentX, this.state.currentY, this.state.radius);
+
+    console.log("Message render(), div_coords: " + div_coords.dist_left + ", " + div_coords.dist_top);
 
     return (
       <div

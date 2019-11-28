@@ -5,8 +5,6 @@ import Message from './Message.js';
 import {ctod} from './Util';
 
 class Node extends React.Component {
-  messageSent = false;
-  shouldDisplayMessage = false;
 
   constructor(props) {
     super();
@@ -16,12 +14,6 @@ class Node extends React.Component {
       centX: props.centX,
       centY: props.centY,
       nodeRadius: 35,
-      // States used to control messages.
-      messageX: props.centX,
-      messageY: props.centY,
-      // Test temporary destination for updating message control coords.
-      nextX: props.nextX,
-      nextY: props.nextY,
 
       // All other nodes.
       allNodes: props.allNodes,
@@ -29,9 +21,6 @@ class Node extends React.Component {
       allMessageRefs: [],
     }
   
-    this.recycleMessage = this.recycleMessage.bind(this);
-    this.recycleAllMessages = this.recycleAllMessages.bind(this);
-
     for(let i = 0; i < this.state.allNodes.length; i++) {
         let ref = React.createRef();
         this.state.allMessageRefs.push(ref);
@@ -41,44 +30,25 @@ class Node extends React.Component {
             ref={ref}
             startX={this.state.centX}
             startY={this.state.centY}
-            onMessageArrival={this.recycleAllMessages}
-            trigger={this.state.testTrigger}
         />);
     }
-}
+  }
 
   sendAllMessages() {
-    this.shouldDisplayMessage = true;
-    if (this.messageSent)
-          return;
-    this.messageSent = true;
     for (let i = 0; i < this.state.allMessageRefs.length; i++) {
         const node = this.state.allNodes[i];
-        if (i === this.state.self_index)
-            continue;
-        this.state.allMessageRefs[i].current.fire(node.coordX, node.coordY);
+        this.sendMessage(node.coordX, node.coordY, i);
     }
   }
 
-  sendMessage() {
-    this.shouldDisplayMessage = true;
-    this.setState({ messageX: this.state.nextX, messageY: this.state.nextY });
+  sendMessage(x, y, i) {
+    this.state.allMessageRefs[i].current.fire(x, y, function() { 
+        this.recycleMessage(this.state.centX, this.state.centY, i); 
+    }.bind(this));
   }
 
-  recycleAllMessages() {
-    if (!this.messageSent)
-          return;
-    this.messageSent = false;
-    for (let ref of this.state.allMessageRefs) {
-        ref.current.fire(this.state.centX, this.state.centY);
-    }
-    this.shouldDisplayMessage = false;
-  }
-
-  // Test method for message callback.
-  recycleMessage() {
-    this.setState({ messageX: this.state.centX, messageY: this.state.centY });
-    this.shouldDisplayMessage = false;
+  recycleMessage(x, y, i) {
+    this.state.allMessageRefs[i].current.fireNoCallback(x, y);
   }
 
   render() {
