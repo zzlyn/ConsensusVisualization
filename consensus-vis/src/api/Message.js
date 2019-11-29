@@ -6,14 +6,15 @@ import "./Node.css";
 import {ctod} from './Util';
 
 class Message extends React.Component {
+  flying = false;
+
   constructor(props) {
     super(props);
     this.state = {
       id: props.id,
-      currentX: props.startX,
-      currentY: props.startY,
+      initX: props.startX,
+      initY: props.startY,
       radius: 10,
-      flying: false,
     }
   }
 
@@ -24,19 +25,21 @@ class Message extends React.Component {
   }
 
   fire = (x, y, callback) => {
-    if (this.state.flying) {
+    if (this.flying) {
         console.log("Message already on the fly.");
         return;
     }
-    
-    this.setState({ flying: true });
 
-    console.log("From X: " + this.state.currentX + " to " + x);
+    this.flying = true;
 
+    // Attention: The resulting value of trasnlateX/Y is w.r.t the original initX & init Y. Thus,
+    // { translateX: 10, translateY: 10 } will issue the message to goto (initX + 10, initY + 10).
+    // And { trasnlateX: 0, trasnlateY: 0 } will move the message to (initX + 0, initY + 0) which
+    // is the origin.
     anime({
       targets: "#msg-" + this.props.id,
-      translateX: (x - this.state.currentX),
-      translateY: (y - this.state.currentY),
+      translateX: (x - this.state.initX),
+      translateY: (y - this.state.initY),
       easing: 'linear',
       duration: 1000,
       begin: function() {
@@ -44,17 +47,15 @@ class Message extends React.Component {
       },
       complete: function() {
         // Update coordinates once travel completed.
-        this.setState({ currentX: x, currentY: y});
-        this.setState({ flying: false });
+        this.flying = false;
         console.log("Message docked");
 
         // Execute user defined callback.
         if (callback != null) {
-            // callback();
+            callback();
         }
       }.bind(this),
     });
-    
   }
 
   fireNoCallback = (x, y) => {
@@ -63,9 +64,7 @@ class Message extends React.Component {
 
   render() {
     const hw = this.state.radius * 2;
-    const div_coords = ctod(this.state.currentX, this.state.currentY, this.state.radius);
-
-    console.log("Message render(), div_coords: " + div_coords.dist_left + ", " + div_coords.dist_top);
+    const div_coords = ctod(this.state.initX, this.state.initY, this.state.radius);
 
     return (
       <div

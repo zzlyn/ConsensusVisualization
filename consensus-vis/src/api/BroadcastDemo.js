@@ -3,7 +3,7 @@ import Node from './Node';
 
 import {ctod} from './Util';
 
-const NodeList = ({ num_nodes }) => {
+const BroadcastDemo = ({ num_nodes }) => {
   // get window height and width (dont want to call window object multiple times)
   const winHeight = window.innerHeight;
   const winWidth = window.innerWidth;
@@ -64,4 +64,4 @@ const NodeList = ({ num_nodes }) => {
   );
 }
 
-export default NodeList;
+export default BroadcastDemo;
