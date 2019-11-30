@@ -1,5 +1,5 @@
 import React, { Component } from 'react';
-import NodeList from './api/NodeList';
+import BroadcastDemo from './api/BroadcastDemo';
 import './App.css';
 
 class App extends Component {
@@ -14,7 +14,7 @@ class App extends Component {
     const num_servers = this.state.max_servers;
 
     return (
-      <NodeList num_nodes = {num_servers} />
+      <BroadcastDemo num_nodes = {num_servers} />
     );
   }
 }
