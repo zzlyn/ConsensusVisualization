@@ -19,12 +19,12 @@ class Node extends React.Component {
       allMessages: [],
       allMessageRefs: [],
     }
-  
+
     for(let i = 0; i < this.state.allNodes.length; i++) {
         let ref = React.createRef();
         this.state.allMessageRefs.push(ref);
         this.state.allMessages.push(<Message
-            id={this.state.id * 10 + i}
+            id={props.id * 10 + i}
             key={i}
             ref={ref}
             startX={this.state.centX}
@@ -41,8 +41,8 @@ class Node extends React.Component {
   }
 
   sendMessage(x, y, i) {
-    this.state.allMessageRefs[i].current.fire(x, y, function() { 
-        this.recycleMessage(this.state.centX, this.state.centY, i); 
+    this.state.allMessageRefs[i].current.fire(x, y, function() {
+        this.recycleMessage(this.state.centX, this.state.centY, i);
     }.bind(this));
   }
 
@@ -57,7 +57,7 @@ class Node extends React.Component {
     return (
         <div>
           <div
-            className="circle" 
+            className="circle"
             onClick={() => this.sendAllMessages()}
             style={{
               position: 'absolute',

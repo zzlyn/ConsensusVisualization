@@ -34,14 +34,15 @@ const BroadcastDemo = ({ num_nodes }) => {
   for (let i = 0; i < num_nodes; i++) {
     const next = (i + 1) % num_nodes;
 
-    list.push(<Node 
-        key={i+1} 
+    list.push(<Node
+        key={i+1}
         id={i}
         centX = {serverCoords[i].coordX}
         centY = {serverCoords[i].coordY}
         nextX = {serverCoords[next].coordX}
         nextY = {serverCoords[next].coordY}
         allNodes = {serverCoords.filter(coord => coord.coordX !== serverCoords[i].coordX && coord.coordY !== serverCoords[i].coordY)}
+        nodeColor = "#8da0cb"
     />);
   }
 
