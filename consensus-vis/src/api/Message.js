@@ -6,6 +6,8 @@ import "./Node.css";
 import {ctod} from './Util';
 
 class Message extends React.Component {
+  flying = false;
+
   constructor(props) {
     super(props);
     this.state = {
@@ -19,22 +21,45 @@ class Message extends React.Component {
   }
 
   componentDidUpdate() {
-    this.anime();
   }
 
-  anime = () => {
+  fire = (x, y, callback) => {
+    if (this.flying) {
+        console.log("Message already on the fly.");
+        return;
+    }
+
+    this.flying = true;
+
+    // Attention: The resulting value of trasnlateX/Y is w.r.t the original initX & init Y. Thus,
+    // { translateX: 10, translateY: 10 } will issue the message to goto (initX + 10, initY + 10).
+    // And { trasnlateX: 0, trasnlateY: 0 } will move the message to (initX + 0, initY + 0) which
+    // is the origin.
     anime({
       targets: "#msg-" + this.props.id,
-      translateX: this.props.msgControlX - this.props.startX,
-      translateY: this.props.msgControlY - this.props.startY,
+      translateX: (x - this.state.initX),
+      translateY: (y - this.state.initY),
       easing: 'linear',
       duration: 1000,
       begin: function() {
         console.log("Begin Callback");
       },
-      complete: this.props.onMessageArrival,
+      complete: function() {
+        // Update coordinates once travel completed.
+        this.flying = false;
+        console.log("Message docked");
+
+        // Execute user defined callback.
+        if (callback != null) {
+            callback();
+        }
+      }.bind(this),
     });
-  };
+  }
+
+  fireNoCallback = (x, y) => {
+    this.fire(x, y, null);
+  }
 
   render() {
     const hw = this.state.radius * 2;

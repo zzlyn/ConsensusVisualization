@@ -5,8 +5,6 @@ import Message from './Message.js';
 import {ctod} from './Util';
 
 class Node extends React.Component {
-  messageSent = false;
-  shouldDisplayMessage = false;
 
   constructor(props) {
     super();
@@ -15,26 +13,41 @@ class Node extends React.Component {
       centX: props.centX,
       centY: props.centY,
       nodeRadius: 35,
-      // States used to control messages.
-      messageX: props.centX,
-      messageY: props.centY,
-      // Test temporary destination for updating message control coords.
-      nextX: props.nextX,
-      nextY: props.nextY,
+
+      // All other nodes.
+      allNodes: props.allNodes,
+      allMessages: [],
+      allMessageRefs: [],
     }
-
-    this.recycleMessage = this.recycleMessage.bind(this);
+  
+    for(let i = 0; i < this.state.allNodes.length; i++) {
+        let ref = React.createRef();
+        this.state.allMessageRefs.push(ref);
+        this.state.allMessages.push(<Message
+            id={this.state.id * 10 + i}
+            key={i}
+            ref={ref}
+            startX={this.state.centX}
+            startY={this.state.centY}
+        />);
+    }
   }
 
-  sendMessage() {
-    this.shouldDisplayMessage = true;
-    this.setState({ messageX: this.state.nextX, messageY: this.state.nextY });
+  sendAllMessages() {
+    for (let i = 0; i < this.state.allMessageRefs.length; i++) {
+        const node = this.state.allNodes[i];
+        this.sendMessage(node.coordX, node.coordY, i);
+    }
   }
 
-  // Test method for message callback.
-  recycleMessage() {
-    this.setState({ messageX: this.state.centX, messageY: this.state.centY });
-    this.shouldDisplayMessage = false;
+  sendMessage(x, y, i) {
+    this.state.allMessageRefs[i].current.fire(x, y, function() { 
+        this.recycleMessage(this.state.centX, this.state.centY, i); 
+    }.bind(this));
+  }
+
+  recycleMessage(x, y, i) {
+    this.state.allMessageRefs[i].current.fireNoCallback(x, y);
   }
 
   render() {
@@ -45,7 +58,7 @@ class Node extends React.Component {
         <div>
           <div
             className="circle" 
-            onClick={() => this.sendMessage()}
+            onClick={() => this.sendAllMessages()}
             style={{
               position: 'absolute',
               width: hw,
@@ -55,15 +68,8 @@ class Node extends React.Component {
               background: this.props.nodeColor
             }}
           />
-          {this.shouldDisplayMessage &&
-            <Message
-              id={this.props.id}
-              startX={this.state.centX}
-              startY={this.state.centY}
-              msgControlX={this.state.messageX}
-              msgControlY={this.state.messageY}
-              onMessageArrival={this.recycleMessage}
-            />
+          {
+           this.state.allMessages
           }
           {this.props.children}
         </div>
