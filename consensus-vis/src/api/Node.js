@@ -68,9 +68,7 @@ class Node extends React.Component {
               background: this.props.nodeColor
             }}
           />
-          {
-           this.state.allMessages
-          }
+          {this.state.allMessages}
           {this.props.children}
         </div>
     );

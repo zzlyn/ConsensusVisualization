@@ -52,24 +52,25 @@ class RaftNode extends React.Component {
       // {id: rpcDue} map
       // Only set for elected leader
       rpcDue: peers.reduce((map, id) => {map[id] = 0; return map}, {}),
-
-      // Raft-specific display
-      nodeColor: "#8da0cb",
+      // The nodeColor property is the default color of the nodes.
+      nodeColor: this.props.nodeColor,
     }
   }
 
   handleSelectTypeChange = (e) => {
     const newType = e.target.value;
-    this.setState({type: newType, nodeColor: newType == "leader" ? "#33ff4f": "#8da0cb"});
+    this.setState({type: newType, nodeColor: newType == "leader" ? "#33ff4f": this.props.nodeColor});
   }
 
   render() {
     return <Node
+        id = {this.props.id}
         centX = {this.props.centX}
         centY = {this.props.centY}
         nextX = {this.props.nextX}
         nextY = {this.props.nextY}
         nodeColor = {this.state.nodeColor}
+        allNodes = {this.props.allNodes}
       >
         {/*Test passing an element through the Node element*/}
         <div>Raft: {this.state.type}</div>
@@ -79,30 +80,3 @@ class RaftNode extends React.Component {
 }
 
 export default RaftNode;
-
-const messageTypes = {
-  APPEND_ENTRIES: "AppendEntries",
-  REQUEST_VOTE: "RequestVote"
-}
-
-class RaftMessage extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = {
-      type: messageTypes.APPEND_ENTRIES,
-      from: 0,
-      to: 0,
-      term: 0,
-      // Set for RequestVote only
-      lastLogTerm: 0,
-      lastLogIndex: 0,
-      // Set for AppendEntries only
-      entries: [],
-      commitIndex: 0,
-    }
-  }
-
-  render() {
-    return <div>Raft: {this.state.type}</div>;
-  }
-}

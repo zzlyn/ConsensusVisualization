@@ -2,6 +2,7 @@ import React from 'react';
 import Node from './Node';
 
 import {ctod} from './Util';
+import RaftNode from '../logic/RaftNode';
 
 const RaftDemo = ({ num_nodes }) => {
   // get window height and width (dont want to call window object multiple times)
@@ -39,7 +40,7 @@ const RaftDemo = ({ num_nodes }) => {
   for (let i = 0; i < num_nodes; i++) {
     const next = (i + 1) % num_nodes;
 
-    list.push(<Node
+    list.push(<RaftNode
         key={i+1}
         id={i}
         centX = {serverCoords[i].coordX}
