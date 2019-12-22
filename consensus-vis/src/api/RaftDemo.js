@@ -1,5 +1,4 @@
 import React from 'react';
-import Node from './Node';
 
 import {ctod} from './Util';
 import RaftNode from '../logic/RaftNode';

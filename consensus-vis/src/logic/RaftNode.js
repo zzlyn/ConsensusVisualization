@@ -18,6 +18,20 @@ const nodeTypes = {
   CRASHED: "crashed"
 }
 
+function getColorFromType(type) {
+  switch(type) {
+    case nodeTypes.LEADER:
+      return "#33ff4f";
+    case nodeTypes.CANDIDATE:
+      return "#e033ff";
+    case nodeTypes.CRASHED:
+      return "#afafaf"
+    case nodeTypes.FOLLOWER:
+    default:
+      return this.props.nodeColor;
+  }
+}
+
 // TODO: can bring this to the generic Node, given a nodeTypes which is specific to the algorithm.
 const NodeTypeSelect = ({value, handleChange}) => {
   let options = Object.values(nodeTypes).map((item) => {
@@ -34,7 +48,7 @@ class RaftNode extends React.Component {
     const peers = getPeerIds(props.id, props.num_nodes);
     this.state = {
       peers: peers,
-      type: nodeTypes.FOLLOWER,
+      type: nodeTypes.CANDIDATE,
       term: 0,
       votedFor: 0,
       commitIndex: 0,
@@ -59,7 +73,7 @@ class RaftNode extends React.Component {
 
   handleSelectTypeChange = (e) => {
     const newType = e.target.value;
-    this.setState({type: newType, nodeColor: newType == "leader" ? "#33ff4f": this.props.nodeColor});
+    this.setState({type: newType});
   }
 
   render() {
@@ -69,7 +83,7 @@ class RaftNode extends React.Component {
         centY = {this.props.centY}
         nextX = {this.props.nextX}
         nextY = {this.props.nextY}
-        nodeColor = {this.state.nodeColor}
+        nodeColor = {getColorFromType(this.state.type)}
         allNodes = {this.props.allNodes}
       >
         {/*Test passing an element through the Node element*/}
