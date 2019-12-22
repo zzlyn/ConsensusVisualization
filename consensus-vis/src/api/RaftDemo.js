@@ -40,6 +40,7 @@ const RaftDemo = ({ num_nodes }) => {
     list.push(<RaftNode
         key={i+1}
         id={i}
+        num_nodes={num_nodes}
         centX = {serverCoords[i].coordX}
         centY = {serverCoords[i].coordY}
         allNodes = {list}

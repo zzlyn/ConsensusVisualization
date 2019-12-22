@@ -105,7 +105,15 @@ class RaftNode extends React.Component {
   }
 
   recycleMessage(x, y, i) {
-    this.state.allMessageRefs[i].current.fireNoCallback(x, y);
+    console.log(this.state.voteGranted);
+    this.state.allMessageRefs[i].current.fire(x, y, function() {
+      const voteGranted = Object.assign(this.state.voteGranted);
+      voteGranted[this.state.peers[i]] = true;
+      this.setState({
+        voteGranted: voteGranted
+      });
+    }.bind(this));
+    // TODO: check if this node won the vote (majority true in voteGranted), and change `this.state.type` to `nodeTypes.LEADER` if so.
   }
 
   componentDidMount() {
