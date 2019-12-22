@@ -89,22 +89,22 @@ class RaftNode extends React.Component {
     }
   }
 
-  broadcastMessages() {
+  sendHeartbeats() {
     for (let i = 0; i < this.props.allNodes.length; i++) {
         const node = this.props.allNodes[i];
         if (i !== this.props.id) {
-          this.sendMessage(node.props.centX, node.props.centY, i > this.props.id ? i - 1 : i);
+          this.sendRequestVote(node.props.centX, node.props.centY, i > this.props.id ? i - 1 : i);
         }
     }
   }
 
-  sendMessage(x, y, i) {
+  sendRequestVote(x, y, i) {
     this.state.allMessageRefs[i].current.fire(x, y, function() {
-        this.recycleMessage(this.props.centX, this.props.centY, i);
+        this.messageCallback(this.props.centX, this.props.centY, i);
     }.bind(this));
   }
 
-  recycleMessage(x, y, i) {
+  messageCallback(x, y, i) {
     console.log(this.state.voteGranted);
     this.state.allMessageRefs[i].current.fire(x, y, function() {
       const voteGranted = Object.assign(this.state.voteGranted);
@@ -122,7 +122,7 @@ class RaftNode extends React.Component {
 
   handleElectionTimeout = () => {
     this.setState({type: nodeTypes.CANDIDATE});
-    this.broadcastMessages();
+    this.sendHeartbeats();
   }
 
   handleSelectTypeChange = (e) => {
@@ -131,7 +131,7 @@ class RaftNode extends React.Component {
   }
 
   render() {
-    return <div onClick={() => this.broadcastMessages()}><Node
+    return <div onClick={() => this.sendHeartbeats()}><Node
         id = {this.props.id}
         centX = {this.props.centX}
         centY = {this.props.centY}
