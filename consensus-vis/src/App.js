@@ -8,7 +8,7 @@ class App extends Component {
     this.state = {
       max_servers: 5,
       // TODO: this can be set by a UI button in future
-      algorithm: "broadcast_demo"
+      algorithm: "raft"
     };
   }
 
@@ -17,7 +17,7 @@ class App extends Component {
 
     switch(this.state.algorithm) {
 
-      case "broadcast_demo":
+      case "raft":
         return <RaftDemo
           num_nodes = {num_servers}
         />;
