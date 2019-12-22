@@ -28,14 +28,14 @@ function getColorFromType(type) {
       return "#afafaf"
     case nodeTypes.FOLLOWER:
     default:
-      return this.props.nodeColor;
+      return "#8da0cb";
   }
 }
 
 // TODO: can bring this to the generic Node, given a nodeTypes which is specific to the algorithm.
 const NodeTypeSelect = ({value, handleChange}) => {
-  let options = Object.values(nodeTypes).map((item) => {
-    return <option value={item}>{item}</option>;
+  let options = Object.values(nodeTypes).map((item, i) => {
+    return <option key={i} value={item}>{item}</option>;
   });
   return <select value={value} onChange={handleChange}>
     {options}
@@ -48,11 +48,11 @@ class RaftNode extends React.Component {
     const peers = getPeerIds(props.id, props.num_nodes);
     this.state = {
       peers: peers,
-      type: nodeTypes.CANDIDATE,
+      type: nodeTypes.FOLLOWER,
       term: 0,
       votedFor: 0,
       commitIndex: 0,
-      electionAlarm: 0,
+      electionAlarm: 2,
       // {id: voteGranted} map
       voteGranted: peers.reduce((map, id) => {map[id] = false; return map}, {}),
       log: [],
@@ -66,8 +66,6 @@ class RaftNode extends React.Component {
       // {id: rpcDue} map
       // Only set for elected leader
       rpcDue: peers.reduce((map, id) => {map[id] = 0; return map}, {}),
-      // The nodeColor property is the default color of the nodes.
-      nodeColor: this.props.nodeColor,
     }
   }
 
@@ -81,8 +79,6 @@ class RaftNode extends React.Component {
         id = {this.props.id}
         centX = {this.props.centX}
         centY = {this.props.centY}
-        nextX = {this.props.nextX}
-        nextY = {this.props.nextY}
         nodeColor = {getColorFromType(this.state.type)}
         allNodes = {this.props.allNodes}
       >

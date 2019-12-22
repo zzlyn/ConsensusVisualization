@@ -37,17 +37,12 @@ const RaftDemo = ({ num_nodes }) => {
   // a list of node tags that is returned fomr this NodeList function
   let list = [];
   for (let i = 0; i < num_nodes; i++) {
-    const next = (i + 1) % num_nodes;
-
     list.push(<RaftNode
         key={i+1}
         id={i}
         centX = {serverCoords[i].coordX}
         centY = {serverCoords[i].coordY}
-        nextX = {serverCoords[next].coordX}
-        nextY = {serverCoords[next].coordY}
-        allNodes = {serverCoords.filter(coord => coord.coordX !== serverCoords[i].coordX && coord.coordY !== serverCoords[i].coordY)}
-        nodeColor = "#8da0cb"
+        allNodes = {list}
     />);
   }
 

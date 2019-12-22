@@ -10,39 +10,40 @@ class Node extends React.Component {
     super();
     this.state = {
       // Node self states.
-      centX: props.centX,
-      centY: props.centY,
       nodeRadius: 35,
 
       // All other nodes.
-      allNodes: props.allNodes,
       allMessages: [],
       allMessageRefs: [],
     }
 
-    for(let i = 0; i < this.state.allNodes.length; i++) {
-        let ref = React.createRef();
-        this.state.allMessageRefs.push(ref);
-        this.state.allMessages.push(<Message
-            id={props.id * 10 + i}
-            key={i}
-            ref={ref}
-            startX={this.state.centX}
-            startY={this.state.centY}
-        />);
+    for(let i = 0; i < props.allNodes.length; i++) {
+        if (i !== props.id) {
+          let ref = React.createRef();
+          this.state.allMessageRefs.push(ref);
+          this.state.allMessages.push(<Message
+              id={props.id * 10 + i}
+              key={i}
+              ref={ref}
+              startX={props.centX}
+              startY={props.centY}
+          />);
+        }
     }
   }
 
-  sendAllMessages() {
+  broadcastMessages() {
     for (let i = 0; i < this.state.allMessageRefs.length; i++) {
-        const node = this.state.allNodes[i];
-        this.sendMessage(node.coordX, node.coordY, i);
+        const node = this.props.allNodes[i];
+        if (node.props.id !== this.props.id) {
+          this.sendMessage(node.props.centX, node.props.centY, i);
+        }
     }
   }
 
   sendMessage(x, y, i) {
     this.state.allMessageRefs[i].current.fire(x, y, function() {
-        this.recycleMessage(this.state.centX, this.state.centY, i);
+        this.recycleMessage(this.props.centX, this.props.centY, i);
     }.bind(this));
   }
 
@@ -51,14 +52,14 @@ class Node extends React.Component {
   }
 
   render() {
-    const div_coords = ctod(this.state.centX, this.state.centY, this.state.nodeRadius);
-    const hw = this.state.nodeRadius * 2;
+    const div_coords = ctod(this.props.centX, this.props.centY,this.state.nodeRadius);
+    const hw =this.state.nodeRadius * 2;
 
     return (
         <div>
           <div
             className="circle"
-            onClick={() => this.sendAllMessages()}
+            onClick={() => this.broadcastMessages()}
             style={{
               position: 'absolute',
               width: hw,
