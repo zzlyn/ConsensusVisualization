@@ -1,7 +1,6 @@
 import React, { Component } from 'react';
-import BroadcastDemo from './api/BroadcastDemo';
-
 import './App.css';
+import RaftDemo from './api/BroadcastDemo';
 
 class App extends Component {
   constructor() {
@@ -19,7 +18,7 @@ class App extends Component {
     switch(this.state.algorithm) {
 
       case "broadcast_demo":
-        return <BroadcastDemo
+        return <RaftDemo
           num_nodes = {num_servers}
         />;
 
