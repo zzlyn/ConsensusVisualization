@@ -1,6 +1,8 @@
 import React from 'react';
 import Node from '../api/Node';
 
+import Message from '../api/Message.js';
+
 function getPeerIds(id, num_nodes) {
   let peers = [];
   for (let i = 0; i < num_nodes; i++) {
@@ -52,7 +54,7 @@ class RaftNode extends React.Component {
       term: 0,
       votedFor: 0,
       commitIndex: 0,
-      electionAlarm: 2,
+      electionAlarm: 2000,
       // {id: voteGranted} map
       voteGranted: peers.reduce((map, id) => {map[id] = false; return map}, {}),
       log: [],
@@ -66,7 +68,53 @@ class RaftNode extends React.Component {
       // {id: rpcDue} map
       // Only set for elected leader
       rpcDue: peers.reduce((map, id) => {map[id] = 0; return map}, {}),
+
+      // Message elements attached to this node.
+      allMessages: [],
+      allMessageRefs: [],
     }
+
+    for(let i = 0; i < props.allNodes.length; i++) {
+      if (i !== props.id) {
+        let ref = React.createRef();
+        this.state.allMessageRefs.push(ref);
+        this.state.allMessages.push(<Message
+            id={props.id * 10 + i}
+            key={i}
+            ref={ref}
+            startX={props.centX}
+            startY={props.centY}
+        />);
+      }
+    }
+  }
+
+  broadcastMessages() {
+    for (let i = 0; i < this.props.allNodes.length; i++) {
+        const node = this.props.allNodes[i];
+        if (i !== this.props.id) {
+          this.sendMessage(node.props.centX, node.props.centY, i > this.props.id ? i - 1 : i);
+        }
+    }
+  }
+
+  sendMessage(x, y, i) {
+    this.state.allMessageRefs[i].current.fire(x, y, function() {
+        this.recycleMessage(this.props.centX, this.props.centY, i);
+    }.bind(this));
+  }
+
+  recycleMessage(x, y, i) {
+    this.state.allMessageRefs[i].current.fireNoCallback(x, y);
+  }
+
+  componentDidMount() {
+    setTimeout(this.handleElectionTimeout, this.state.electionAlarm);
+  }
+
+  handleElectionTimeout = () => {
+    this.setState({type: nodeTypes.CANDIDATE});
+    this.broadcastMessages();
   }
 
   handleSelectTypeChange = (e) => {
@@ -75,17 +123,17 @@ class RaftNode extends React.Component {
   }
 
   render() {
-    return <Node
+    return <div onClick={() => this.broadcastMessages()}><Node
         id = {this.props.id}
         centX = {this.props.centX}
         centY = {this.props.centY}
         nodeColor = {getColorFromType(this.state.type)}
-        allNodes = {this.props.allNodes}
       >
         {/*Test passing an element through the Node element*/}
         <div>Raft: {this.state.type}</div>
         <NodeTypeSelect value={this.state.type} handleChange={(e) => this.handleSelectTypeChange(e)} />
-      </Node>
+        {this.state.allMessages}
+      </Node></div>
   }
 }
 
