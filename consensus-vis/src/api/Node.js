@@ -33,10 +33,11 @@ class Node extends React.Component {
   }
 
   broadcastMessages() {
-    for (let i = 0; i < this.state.allMessageRefs.length; i++) {
+
+    for (let i = 0; i < this.props.allNodes.length; i++) {
         const node = this.props.allNodes[i];
-        if (node.props.id !== this.props.id) {
-          this.sendMessage(node.props.centX, node.props.centY, i);
+        if (i !== this.props.id) {
+          this.sendMessage(node.props.centX, node.props.centY, i > this.props.id ? i - 1 : i);
         }
     }
   }
