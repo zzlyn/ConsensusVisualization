@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import './App.css';
-import RaftDemo from './api/BroadcastDemo';
+import RaftDemo from './api/RaftDemo';
 
 class App extends Component {
   constructor() {
