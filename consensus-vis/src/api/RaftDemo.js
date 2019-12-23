@@ -1,9 +1,9 @@
 import React from 'react';
-import Node from './Node';
 
 import {ctod} from './Util';
+import RaftNode from '../logic/RaftNode';
 
-const BroadcastDemo = ({ num_nodes }) => {
+const RaftDemo = ({ num_nodes }) => {
   // get window height and width (dont want to call window object multiple times)
   const winHeight = window.innerHeight;
   const winWidth = window.innerWidth;
@@ -14,38 +14,40 @@ const BroadcastDemo = ({ num_nodes }) => {
   const centerY = sizeOfWindow/3;
   const radius = 150;
 
+  const circleDimensions = {centerX: centerX, centerY: centerY, radius: radius};
+
+  function getNodeCoords(id, num_nodes, centerX, centerY, radius) {
+    // multiplied with 1.5PI makes sure the first circle starts at highest point
+    const coordX = centerX + Math.cos((2 * Math.PI * id / num_nodes) + (1.5 * Math.PI))*radius;
+    const coordY = centerY + Math.sin((2 * Math.PI * id / num_nodes) + (1.5 * Math.PI))*radius;
+    return {coordX, coordY};
+  }
+
   // returns center coordinates for nodes given a specific number of nodes
-  function coordinates(num_nodes, cX, cY, rad) {
+  function coordinates(num_nodes, circleDimensions) {
     let coords = [];
-
     for(let i = 0; i < num_nodes; i++) {
-      // multiplied with 1.5PI makes sure the first circle starts at highest point
-      const coordX = cX + Math.cos((2 * Math.PI * i / num_nodes) + (1.5 * Math.PI))*rad;
-      const coordY = cY + Math.sin((2 * Math.PI * i / num_nodes) + (1.5 * Math.PI))*rad;
-      coords.push({coordX,coordY});
+      const nodeCoords = getNodeCoords(i, num_nodes, circleDimensions.centerX, circleDimensions.centerY, circleDimensions.radius);
+      coords.push(nodeCoords);
     }
-
     return coords;
   }
 
-  const serverCoords = coordinates(num_nodes, centerX, centerY, radius);
+  const serverCoords = coordinates(num_nodes, circleDimensions);
   // a list of node tags that is returned fomr this NodeList function
   let list = [];
   for (let i = 0; i < num_nodes; i++) {
-    const next = (i + 1) % num_nodes;
-
-    list.push(<Node 
-        key={i+1} 
+    list.push(<RaftNode
+        key={i+1}
         id={i}
+        num_nodes={num_nodes}
         centX = {serverCoords[i].coordX}
         centY = {serverCoords[i].coordY}
-        nextX = {serverCoords[next].coordX}
-        nextY = {serverCoords[next].coordY}
-        allNodes = {serverCoords.filter(coord => coord.coordX !== serverCoords[i].coordX && coord.coordY !== serverCoords[i].coordY)}
+        allNodes = {list}
     />);
   }
 
-  const background_circle_coords = ctod(centerX, centerY, radius);
+  const background_circle_coords = ctod(circleDimensions.centerX, circleDimensions.centerY, circleDimensions.radius);
 
   return (
     <div>
@@ -64,4 +66,4 @@ const BroadcastDemo = ({ num_nodes }) => {
   );
 }
 
-export default BroadcastDemo;
+export default RaftDemo;
