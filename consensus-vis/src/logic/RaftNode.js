@@ -3,6 +3,13 @@ import Node from '../api/Node';
 
 import Message from '../api/Message.js';
 
+const ELECTION_TIMEOUT = 5000;
+
+const messageTypes = {
+  APPEND_ENTRIES: "AppendEntries",
+  REQUEST_VOTE: "RequestVote",
+}
+
 function getPeerIds(id, num_nodes) {
   let peers = [];
   for (let i = 0; i < num_nodes; i++) {
@@ -51,10 +58,10 @@ class RaftNode extends React.Component {
     this.state = {
       peers: peers,
       type: nodeTypes.FOLLOWER,
-      term: 0,
-      votedFor: 0,
+      term: 55,
+      votedFor: null,
       commitIndex: 0,
-      electionAlarm: 2000,
+      electionAlarm: this.makeElectionAlarm(),
       // {id: voteGranted} map
       voteGranted: peers.reduce((map, id) => {map[id] = false; return map}, {}),
       log: [],
@@ -74,7 +81,7 @@ class RaftNode extends React.Component {
       allMessageRefs: [],
     }
 
-    for(let i = 0; i < props.allNodes.length; i++) {
+    for(let i = 0; i < props.allNodeRefs.length; i++) {
       if (i !== props.id) {
         let ref = React.createRef();
         this.state.allMessageRefs.push(ref);
@@ -89,31 +96,150 @@ class RaftNode extends React.Component {
     }
   }
 
-  sendHeartbeats() {
-    for (let i = 0; i < this.props.allNodes.length; i++) {
-        const node = this.props.allNodes[i];
-        if (i !== this.props.id) {
-          this.sendRequestVote(node.props.centX, node.props.centY, i > this.props.id ? i - 1 : i);
+  makeElectionAlarm() {
+    const timeout = (Math.random() + 1) * ELECTION_TIMEOUT;
+    setTimeout(this.handleElectionTimeout, timeout);
+    return Date.now() + timeout;
+  }
+
+  sendRequestVotes() {
+    for (let index = 0; index < this.props.allNodeRefs.length; index++) {
+        if (index !== this.props.id) {
+          this.sendRequestVoteTo(index);
         }
     }
   }
 
-  sendRequestVote(x, y, i) {
-    this.state.allMessageRefs[i].current.fire(x, y, function() {
-        this.messageCallback(this.props.centX, this.props.centY, i);
+  getMessageIndex(nodeIndex) {
+    return nodeIndex > this.props.id ? nodeIndex - 1 : nodeIndex;
+  }
+
+  sendRequestVoteTo(nodeIndex) {
+    const messageIndex = this.getMessageIndex(nodeIndex);
+    const targetNode = this.props.allNodeRefs[nodeIndex].current;
+
+    this.state.allMessageRefs[messageIndex].current.fire(targetNode.props.centX, targetNode.props.centY, function() {
+      targetNode.messageCallback({
+        type: messageTypes.REQUEST_VOTE,
+        direction: 'request',
+        from: this.props.id,
+        to: nodeIndex,
+        term: this.state.term,
+        // Set for RequestVote only
+        lastLogTerm: 0, // TODO: set to term of last log entry
+        lastLogIndex: 0, // TODO: set to index of last log entry
+      });
     }.bind(this));
   }
 
-  messageCallback(x, y, i) {
-    console.log(this.state.voteGranted);
-    this.state.allMessageRefs[i].current.fire(x, y, function() {
+  // The server received a RequestVote RPC from a candidate.
+  handleRequestVoteRequest(message) {
+    if (this.state.term < message.term) {
+      // stepDown the this
+    }
+    
+    const candidateID = message.from;
+    const messageIndex = this.getMessageIndex(candidateID);
+
+    console.log("this term: " + this.state.term + " message term: " + message.term + " this voted for: " + this.state.votedFor);
+
+    let granted = false;
+    if (this.state.term === message.term &&
+        (this.state.votedFor === null ||
+        this.state.votedFor === message.from) //&&
+        // (request.lastLogTerm > logTerm(this.log, this.log.length) ||
+        // (request.lastLogTerm == logTerm(this.log, this.log.length) &&
+        //   request.lastLogIndex >= this.log.length))) {
+    ){
+      granted = true;
+      this.setState({
+        votedFor: message.from,
+        electionAlarm: this.makeElectionAlarm(),
+      });
+    }
+
+    console.log("granted: " + granted + " to " + message.from);
+
+    let term = this.state.term;
+
+    const candidateNode = this.props.allNodeRefs[candidateID].current;
+
+    // Send a reply back to candidate node and let it know through calling its messageCallback function
+    // with type set to REQUEST_VOTE and direction to `reply`.
+    this.state.allMessageRefs[messageIndex].current.fire(candidateNode.props.centX, candidateNode.props.centY, function () {
+      candidateNode.messageCallback({
+        // Message type identification info.
+        type: messageTypes.REQUEST_VOTE,
+        direction: 'reply',
+        // RequestVoteReply specific params.
+        granted: granted,
+        term: term,
+        from: this.props.id
+      });
+    }.bind(this));
+  }
+
+  handleRequestVoteReply(message) {
+    const messageRef = this.getMessageIndex(message.from);
+    if (this.state.term < message.term) {
+      // step down this
+    }
+
+    if (this.state.type === nodeTypes.CANDIDATE && this.state.term === message.term) {
+      // set rpcdue to infinity
       const voteGranted = Object.assign(this.state.voteGranted);
-      voteGranted[this.state.peers[i]] = true;
+      const peer_id = this.state.peers[messageRef];
+      voteGranted[peer_id] = message.granted;
       this.setState({
         voteGranted: voteGranted
       });
-    }.bind(this));
-    // TODO: check if this node won the vote (majority true in voteGranted), and change `this.state.type` to `nodeTypes.LEADER` if so.
+    }
+
+    function numTrue(voteGranted) {
+      let count = 0;
+      for (let [key, value] of Object.entries(voteGranted)) {
+        console.log(key + " " + value);
+        if (value === true) {
+          count += 1;
+        }
+      }
+      return count;
+    }
+
+    if (numTrue(this.state.voteGranted) + 1 > Math.floor(this.props.num_nodes / 2)) {
+      this.setState({type: nodeTypes.LEADER});
+    }
+  }
+
+  handleAppendEntriesRequest(message) {
+    // To be implemented.
+    return;
+  }
+
+  handleAppendEntriesReply(message) {
+    // To be implemented.
+    return;
+  }
+
+  messageCallback(message) {
+    // Do nothing if the node is stopped.
+    if (this.state.type === nodeTypes.CRASHED) {
+      return;
+    }
+
+    if (message.type === messageTypes.REQUEST_VOTE) {
+      if (message.direction === 'request') {
+        this.handleRequestVoteRequest(message);
+      } else {
+        this.handleRequestVoteReply(message);
+      }
+    } else if (message.type === messageTypes.APPEND_ENTRIES) {
+      if (message.direction === 'request') {
+        this.handleAppendEntriesRequest(message);
+      } else {
+        this.handleAppendEntriesReply(message);
+      }
+    }
   }
 
   componentDidMount() {
@@ -121,8 +247,10 @@ class RaftNode extends React.Component {
   }
 
   handleElectionTimeout = () => {
-    this.setState({type: nodeTypes.CANDIDATE});
-    this.sendHeartbeats();
+    if (Date.now() >= this.state.electionAlarm) {
+      this.setState({type: nodeTypes.CANDIDATE});
+      this.sendRequestVotes();
+    }
   }
 
   handleSelectTypeChange = (e) => {
@@ -131,17 +259,18 @@ class RaftNode extends React.Component {
   }
 
   render() {
-    return <div onClick={() => this.sendHeartbeats()}><Node
+    return <div><div onClick={() => this.sendRequestVotes()}><Node
         id = {this.props.id}
         centX = {this.props.centX}
         centY = {this.props.centY}
         nodeColor = {getColorFromType(this.state.type)}
       >
         {/*Test passing an element through the Node element*/}
-        <div>Raft: {this.state.type}</div>
-        <NodeTypeSelect value={this.state.type} handleChange={(e) => this.handleSelectTypeChange(e)} />
         {this.state.allMessages}
       </Node></div>
+      <div>Raft: {this.state.type}</div>
+      <NodeTypeSelect value={this.state.type} handleChange={(e) => this.handleSelectTypeChange(e)} />
+      </div>
   }
 }
 

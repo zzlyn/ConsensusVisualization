@@ -23,6 +23,16 @@ class Message extends React.Component {
   componentDidUpdate() {
   }
 
+  reset = () => {
+    anime.set("#msg-" + this.props.id, {
+      translateX: 0,
+      translateY: 0,
+    })
+  }
+
+  // Render a flying message from (initX, initY) to (x, y). After
+  // the message is delivered to destination it will be instantly
+  // returned back to (initX, initY) without animation.
   fire = (x, y, callback) => {
     if (this.flying) {
         console.log("Message already on the fly.");
@@ -47,7 +57,9 @@ class Message extends React.Component {
       complete: function() {
         // Update coordinates once travel completed.
         this.flying = false;
-        console.log("Message docked");
+
+        // Recycle the message to its origin.
+        this.reset();
 
         // Execute user defined callback.
         if (callback != null) {

@@ -34,16 +34,20 @@ const RaftDemo = ({ num_nodes }) => {
   }
 
   const serverCoords = coordinates(num_nodes, circleDimensions);
+  let serverRefs = [];
   // a list of node tags that is returned fomr this NodeList function
   let list = [];
   for (let i = 0; i < num_nodes; i++) {
+    let ref = React.createRef();
+    serverRefs.push(ref);
     list.push(<RaftNode
         key={i+1}
+        ref={ref}
         id={i}
         num_nodes={num_nodes}
         centX = {serverCoords[i].coordX}
         centY = {serverCoords[i].coordY}
-        allNodes = {list}
+        allNodeRefs = {serverRefs}
     />);
   }
 
