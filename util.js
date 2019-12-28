@@ -109,3 +109,19 @@ util.clamp = function(value, low, high) {
     return high;
   return value;
 };
+
+util.SVG = function(tag) {
+  return $(document.createElementNS('http://www.w3.org/2000/svg', tag));
+};
+
+util.relTime = function(time, now) {
+  if (time == util.Inf)
+    return 'infinity';
+  var sign = time > now ? '+' : '';
+  return sign + ((time - now) / 1e3).toFixed(3) + 'ms';
+};
+
+util.button = function(label) {
+  return $('<button type="button" class="btn btn-default"></button>')
+    .text(label);
+};
