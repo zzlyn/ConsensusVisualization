@@ -11,6 +11,7 @@ var raft = {};
 
 /* Begin Raft algorithm logic */
 
+// Public Variable.
 raft.NUM_SERVERS = 5;
 
 var RPC_TIMEOUT = 50000;
@@ -55,6 +56,7 @@ var makeElectionAlarm = function(now) {
   return now + (Math.random() + 1) * ELECTION_TIMEOUT;
 };
 
+// Public API.
 raft.server = function(id, peers) {
   return {
     id: id,
@@ -252,7 +254,7 @@ var handleMessage = function(model, server, message) {
   }
 };
 
-
+// Public function.
 raft.update = function(model) {
   model.servers.forEach(function(server) {
     rules.startNewElection(model, server);
@@ -281,16 +283,19 @@ raft.update = function(model) {
   });
 };
 
+// Public function.
 raft.stop = function(model, server) {
   server.state = 'stopped';
   server.electionAlarm = 0;
 };
 
+// Public function.
 raft.resume = function(model, server) {
   server.state = 'follower';
   server.electionAlarm = makeElectionAlarm(model.time);
 };
 
+// Public function.
 raft.resumeAll = function(model) {
   model.servers.forEach(function(server) {
     raft.resume(model, server);
@@ -314,6 +319,7 @@ raft.timeout = function(model, server) {
   rules.startNewElection(model, server);
 };
 
+// Public function but may be Raft specific.
 raft.clientRequest = function(model, server) {
   if (server.state == 'leader') {
     server.log.push({term: server.term,
@@ -321,6 +327,7 @@ raft.clientRequest = function(model, server) {
   }
 };
 
+// Public function.
 raft.spreadTimers = function(model) {
   var timers = [];
   model.servers.forEach(function(server) {
@@ -351,6 +358,7 @@ raft.spreadTimers = function(model) {
   }
 };
 
+// Public function.
 raft.alignTimers = function(model) {
   raft.spreadTimers(model);
   var timers = [];
@@ -369,6 +377,7 @@ raft.alignTimers = function(model) {
   });
 };
 
+// Pubilc method but may be raft specific.
 raft.setupLogReplicationScenario = function(model) {
   var s1 = model.servers[0];
   raft.restart(model, model.servers[1]);
@@ -494,6 +503,7 @@ var messageActions = [
   ['drop', raft.drop],
 ];
 
+// Public method but may be specific to Raft Only.
 raft.getLeader = function() {
   var leader = null;
   var term = 0;
@@ -612,8 +622,10 @@ var messageModal = function(model, message) {
   m.modal();
 };
 
+// Public variable.
 raft.render = {};
 
+// Public function.
 raft.render.ring = function(svg) {
   $('#pause').attr('transform',
     'translate(' + ringSpec.cx + ', ' + ringSpec.cy + ') ' +
@@ -622,6 +634,7 @@ raft.render.ring = function(svg) {
   $('#ring', svg).attr(ringSpec);
 }
 
+// Public function.
 raft.render.servers = function(serversSame, svg) {
   state.current.servers.forEach(function(server) {
     var serverNode = $('#server-' + server.id, svg);
@@ -698,6 +711,7 @@ raft.render.servers = function(serversSame, svg) {
   });
 };
 
+// Public API.
 raft.appendServerInfo = function(state, svg) {
   state.current.servers.forEach(function(server) {
     var s = serverSpec(server.id);
@@ -725,6 +739,7 @@ raft.appendServerInfo = function(state, svg) {
   });
 }
 
+// Public function.
 raft.render.entry = function(spec, entry, committed) {
   return util.SVG('g')
     .attr('class', 'entry ' + (committed ? 'committed' : 'uncommitted'))
@@ -738,6 +753,7 @@ raft.render.entry = function(spec, entry, committed) {
       .text(entry.term));
 };
 
+// Public function.
 raft.render.logs = function(svg) {
   var LABEL_WIDTH = 25;
   var INDEX_HEIGHT = 25;
@@ -824,6 +840,7 @@ raft.render.logs = function(svg) {
   });
 };
 
+// Public function.
 raft.render.messages = function(messagesSame, svg) {
   var messagesGroup = $('#messages', svg);
   if (!messagesSame) {
