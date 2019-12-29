@@ -68,6 +68,71 @@ var serverIdToColor = function(id) {
   return serverStateToColor(serverIdToState(id));
 }
 
+// Public API: server object.
+raft.server = function(servID, servState, peers) {
+
+  let serverAttrs = {
+    serverID: servID,
+    state: servState, //some online searches say a server can take multiple states
+    peers: peers,
+    maxPropNum: 0,  //this server promises to not allow proposals with proposalNum less than maxPropNum
+
+    // following variables show the currently accepted proposal ID and value
+    acceptedProposalID: '0',  //initially 0. If this is 0 then nothing was ever accepted and thus the acceptedProposalVal is invalid
+    acceptedProposalVal: 'default', //can only use this value if acceptedProposalID !== 0
+  };
+
+  /* This could be used if we encounter any additional attributes that are unique to a server's state.
+  // separate attributes for different states. OR we could combine all of them into one.
+  if (servState == SERVER_STATE.PROPOSER) {
+    let propAttrs = {
+
+    };
+
+    serverAttrs = Object.assign({}, serverAttrs, propAttrs);
+  }
+  else if (servState == SERVER_STATE.ACCEPTOR) {
+    let acceptAttrs = {
+
+    };
+
+    serverAttrs = Object.assign({}, serverAttrs, acceptAttrs);
+  }
+  // else a 'learner'
+  else {
+    let learnAttrs = {
+
+    };
+
+    serverAttrs = Object.assign({}, serverAttrs, learnAttrs);
+  }*/
+
+  return serverAttrs;
+
+  /*{ ELECTIONS STUFF FOR DISTINGUISHED PROPOSER
+    term: 1,
+    votedFor: null,
+    log: [],
+    commitIndex: 0,
+    electionAlarm: makeElectionAlarm(0),
+    voteGranted:  util.makeMap(peers, false),
+    matchIndex:   util.makeMap(peers, 0),
+    nextIndex:    util.makeMap(peers, 1),
+    rpcDue:       util.makeMap(peers, 0),
+    heartbeatDue: util.makeMap(peers, 0),
+  };*/
+};
+
+// message object. (could be proposal message/ accepter ACKs to proposals/learners)
+raft.message = function(propNum, servID) {
+  return {
+    proposalNum: propNum,
+    proposalID: servID + proposalNum, //make each message unique to that server by including server ID
+    proposalVal: 'default', //pass values as strings
+    messageState: 'default', //could be proposal message or ACK from accepter. default initially.
+  };
+};
+
 var RPC_TIMEOUT = 50000;
 var MIN_RPC_LATENCY = 10000;
 var MAX_RPC_LATENCY = 15000;
