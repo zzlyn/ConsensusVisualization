@@ -115,7 +115,7 @@ raft.server = function(id, peers) {
   return {
     id: id,
     peers: peers,
-    state: 'follower',
+    state: 'acceptor',
     term: 1,
     votedFor: null,
     log: [],
@@ -165,6 +165,19 @@ rules.sendRequestVote = function(model, server, peer) {
       lastLogTerm: logTerm(server.log, server.log.length),
       lastLogIndex: server.log.length});
   }
+};
+
+//send request from client to proposer
+raft.sendClientRequest = function(model, server, proposer) {
+  var group = util.groupServers(model);
+  var clientId = group[0].id;
+  var proposers = group[1];
+  proposers.forEach(function(proposers){
+    sendRequest(model, {
+      from: clientId,
+      to: proposers.id,
+      type: 'ClientRequest'});
+  });
 };
 
 rules.becomeLeader = function(model, server) {

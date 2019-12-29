@@ -125,3 +125,28 @@ util.button = function(label) {
   return $('<button type="button" class="btn btn-default"></button>')
     .text(label);
 };
+
+//for paxos only for now
+util.groupServers = function(model){
+  var client;
+  var proposers = [];
+  var acceptors = [];
+  var learners = [];
+  model.servers.forEach(function(server){
+    if(server.state == 'client'){
+      client = server;
+    } else if(server.state == 'proposer'){
+      proposers.push(server);
+    } else if(server.state == 'acceptor'){
+      acceptors.push(server);
+    } else if(server.state == 'learner'){
+      learners.push(server);
+    }
+  })
+  var group = [];
+  group.push(client);
+  group.push(proposers);
+  group.push(acceptors);
+  group.push(learners);
+  return group;
+};
