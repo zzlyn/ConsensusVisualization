@@ -705,11 +705,6 @@ paxos.render.ring = function(svg) {
 paxos.render.servers = function(serversSame, svg) {
   state.current.servers.forEach(function(server) {
     var serverNode = $('#server-' + server.id, svg);
-    $('path', serverNode)
-      .attr('d', arcSpec(serverSpec(server.id),
-        util.clamp((server.electionAlarm - state.current.time) /
-                    (ELECTION_TIMEOUT * 2),
-                    0, 1)));
     if (!serversSame) {
       $('text.term', serverNode).text(server.term);
       serverNode.attr('class', 'server ' + server.state);
@@ -798,8 +793,6 @@ paxos.appendServerInfo = function(state, svg) {
                     .attr('fill', serverIdToColor(server.id))
           .append(util.SVG('g')
                     .attr('class', 'votes'))
-          .append(util.SVG('path')
-                    .attr('style', 'stroke-width: ' + ARC_WIDTH))
           .append(util.SVG('text')
                     .attr('class', 'term')
                     .attr({x: s.cx, y: s.cy}))
@@ -902,12 +895,6 @@ paxos.render.logs = function(svg) {
                  cy: logSpec.y + logSpec.height,
                  r: 5}));
       var x = logEntrySpec(leader.nextIndex[server.id] + 0.5).x;
-      log.append(util.SVG('path')
-        .attr('title', 'next index')//.tooltip({container: 'body'})
-        .attr('style', 'marker-end:url(#TriangleOutM); stroke: black')
-        .attr('d', ['M', x, comma, logSpec.y + logSpec.height + logSpec.height/3,
-                    'L', x, comma, logSpec.y + logSpec.height + logSpec.height/6].join(' '))
-        .attr('stroke-width', 3));
     }
   });
 };
