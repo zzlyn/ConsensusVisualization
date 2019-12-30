@@ -124,7 +124,7 @@ paxos.server = function(id, peers) {
 //send request from client to proposer
 paxos.sendClientRequest = function(model, server, proposer) {
   var group = util.groupServers(model);
-  var clientId = group[0].id;
+  var clientId = group[0][0].id;
   var proposers = group[1];
   proposers.forEach(function(proposers){
     sendRequest(model, {
@@ -313,17 +313,6 @@ paxos.setupLogReplicationScenario = function(model) {
 var ARC_WIDTH = 5;
 
 var comma = ',';
-var arcSpec = function(spec, fraction) {
-  var radius = spec.r + ARC_WIDTH/2;
-  var end = util.circleCoord(fraction, spec.cx, spec.cy, radius);
-  var s = ['M', spec.cx, comma, spec.cy - radius];
-  if (fraction > 0.5) {
-    s.push('A', radius, comma, radius, '0 0,1', spec.cx, spec.cy + radius);
-    s.push('M', spec.cx, comma, spec.cy + radius);
-  }
-  s.push('A', radius, comma, radius, '0 0,1', end.x, end.y);
-  return s.join(' ');
-};
 
 var logsSpec = {
   x: 430,
@@ -338,9 +327,17 @@ var ringSpec = {
   r: 150,
 };
 
-var serverSpec = function(id) {
-  var coord = util.circleCoord((id - 1) / paxos.NUM_SERVERS,
-                               ringSpec.cx, ringSpec.cy, ringSpec.r);
+var columnSpec = {
+  cx: 210,
+  cy: 160,
+  xGap: 100,
+  yGap: 90,
+};
+
+var serverSpec = function(id,model) {
+  var coord = util.verticalCoord(model.servers[id-1].state,util.serverIdtoNumInGroup(id,model),
+                                 columnSpec.xGap,columnSpec.yGap,columnSpec.cx,columnSpec.cy,
+                                 paxos.NUM_PROPOSERS,paxos.NUM_ACCEPTORS,paxos.NUM_LEARNERS);               
   return {
     cx: coord.x,
     cy: coord.y,
@@ -350,9 +347,9 @@ var serverSpec = function(id) {
 
 var MESSAGE_RADIUS = 8;
 
-var messageSpec = function(from, to, frac) {
-  var fromSpec = serverSpec(from);
-  var toSpec = serverSpec(to);
+var messageSpec = function(from, to, frac, model) {
+  var fromSpec = serverSpec(from, model);
+  var toSpec = serverSpec(to, model);
   // adjust frac so you start and end at the edge of servers
   var totalDist  = Math.sqrt(Math.pow(toSpec.cx - fromSpec.cx, 2) +
                              Math.pow(toSpec.cy - fromSpec.cy, 2));
@@ -365,9 +362,9 @@ var messageSpec = function(from, to, frac) {
   };
 };
 
-var messageArrowSpec = function(from, to, frac) {
-  var fromSpec = serverSpec(from);
-  var toSpec = serverSpec(to);
+var messageArrowSpec = function(from, to, frac, model) {
+  var fromSpec = serverSpec(from, model);
+  var toSpec = serverSpec(to, model);
   // adjust frac so you start and end at the edge of servers
   var totalDist  = Math.sqrt(Math.pow(toSpec.cx - fromSpec.cx, 2) +
                              Math.pow(toSpec.cy - fromSpec.cy, 2));
@@ -571,7 +568,7 @@ paxos.render.servers = function(serversSame, svg) {
 // Public API.
 paxos.appendServerInfo = function(state, svg) {
   state.current.servers.forEach(function(server) {
-    var s = serverSpec(server.id);
+    var s = serverSpec(server.id,state.current);
     $('#servers', svg).append(
       util.SVG('g')
         .attr('id', 'server-' + server.id)
@@ -579,8 +576,7 @@ paxos.appendServerInfo = function(state, svg) {
         .append(util.SVG('text')
                   .attr('class', 'serverid')
                   .text('S' + server.id)
-                  .attr(util.circleCoord((server.id - 1) / paxos.NUM_SERVERS,
-                                          ringSpec.cx, ringSpec.cy, ringSpec.r + 50)))
+                  .attr({x: s.cx, y: s.cy - 40}))
         .append(util.SVG('a')
           .append(util.SVG('circle')
                     .attr('class', 'background')
@@ -744,7 +740,7 @@ paxos.render.messages = function(messagesSame, svg) {
   state.current.messages.forEach(function(message, i) {
     var s = messageSpec(message.from, message.to,
                         (state.current.time - message.sendTime) /
-                        (message.recvTime - message.sendTime));
+                        (message.recvTime - message.sendTime),state.current);
     $('#message-' + i + ' circle', messagesGroup)
       .attr(s);
     if (message.direction == 'reply') {
@@ -764,7 +760,7 @@ paxos.render.messages = function(messagesSame, svg) {
          .attr('d',
            messageArrowSpec(message.from, message.to,
                                  (state.current.time - message.sendTime) /
-                                 (message.recvTime - message.sendTime)));
+                                 (message.recvTime - message.sendTime), state.current));
     } else {
       dir.attr('style', '').attr('d', 'M 0,0'); // clear
     }
