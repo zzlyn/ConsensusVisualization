@@ -238,3 +238,15 @@ a#time-button  {
 .slide .gray {
   color: #333;
 }
+
+#algorithm-selection {
+  float:right;
+  position:relative;
+  left:-50%;
+  text-align:left;
+}
+
+#algorithm-selection ul{
+  list-style:none;
+  left:50%;
+}

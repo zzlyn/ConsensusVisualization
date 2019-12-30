@@ -150,3 +150,9 @@ util.groupServers = function(model){
   group.push(learners);
   return group;
 };
+
+util.select = function(algorithm,algorithmName){
+  protocol = algorithm;
+  activeProtocol = algorithmName;
+  util.activate();
+}
