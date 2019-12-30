@@ -14,7 +14,7 @@ var state;
 var record;
 var replay;
 
-var protocol = raft;
+var protocol = paxos;
 
 //temporary var to indicate current active protocol, should be removed and use (protocol) later 
 var activeProtocol = 'paxos';

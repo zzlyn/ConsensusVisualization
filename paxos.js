@@ -5,20 +5,20 @@
 /* global util */
 'use strict';
 
-var raft = {};
+var paxos = {};
 
 (function() {
 
-/* Begin Raft algorithm logic */
+/* Begin paxos algorithm logic */
 
 // Configure these variables to define the number of proposers, accepters 
 // and learners in the consensus.
-raft.NUM_PROPOSERS = 1;
-raft.NUM_ACCEPTORS = 3;
-raft.NUM_LEARNERS = 1;
+paxos.NUM_PROPOSERS = 1;
+paxos.NUM_ACCEPTORS = 3;
+paxos.NUM_LEARNERS = 1;
 
 // Public Variable.
-raft.NUM_SERVERS = raft.NUM_PROPOSERS + raft.NUM_ACCEPTORS + raft.NUM_LEARNERS;
+paxos.NUM_SERVERS = paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS + paxos.NUM_LEARNERS;
 
 // Use these utils to identify server state.
 const SERVER_STATE = {
@@ -31,15 +31,15 @@ const SERVER_STATE = {
 // Translate ID in range [1, NUM_SERVERS] to server state. Returns
 // UNKNOWN if ID is out of bound.
 var serverIdToState = function(id) {
-  if (id <= 0 || id > raft.NUM_SERVERS) {
+  if (id <= 0 || id > paxos.NUM_SERVERS) {
     return SERVER_STATE.UNKNOWN;
   }
 
-  if (id <= raft.NUM_PROPOSERS) {
+  if (id <= paxos.NUM_PROPOSERS) {
     return SERVER_STATE.PROPOSER;
   }
 
-  if (id <= raft.NUM_PROPOSERS + raft.NUM_ACCEPTORS) {
+  if (id <= paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS) {
     return SERVER_STATE.ACCEPTOR;
   }
 
@@ -104,14 +104,14 @@ var logTerm = function(log, index) {
 };
 
 var rules = {};
-raft.rules = rules;
+paxos.rules = rules;
 
 var makeElectionAlarm = function(now) {
   return now + (Math.random() + 1) * ELECTION_TIMEOUT;
 };
 
 // Public API.
-raft.server = function(id, peers) {
+paxos.server = function(id, peers) {
   return {
     id: id,
     peers: peers,
@@ -182,7 +182,7 @@ raft.sendClientRequest = function(model, server, proposer) {
 
 rules.becomeLeader = function(model, server) {
   if (server.state == 'candidate' &&
-      util.countTrue(util.mapValues(server.voteGranted)) + 1 > Math.floor(raft.NUM_SERVERS / 2)) {
+      util.countTrue(util.mapValues(server.voteGranted)) + 1 > Math.floor(paxos.NUM_SERVERS / 2)) {
     //console.log('server ' + server.id + ' is leader in term ' + server.term);
     server.state = 'leader';
     server.nextIndex    = util.makeMap(server.peers, server.log.length + 1);
@@ -219,7 +219,7 @@ rules.sendAppendEntries = function(model, server, peer) {
 rules.advanceCommitIndex = function(model, server) {
   var matchIndexes = util.mapValues(server.matchIndex).concat(server.log.length);
   matchIndexes.sort(util.numericCompare);
-  var n = matchIndexes[Math.floor(raft.NUM_SERVERS / 2)];
+  var n = matchIndexes[Math.floor(paxos.NUM_SERVERS / 2)];
   if (server.state == 'leader' &&
       logTerm(server.log, n) == server.term) {
     server.commitIndex = Math.max(server.commitIndex, n);
@@ -322,7 +322,7 @@ var handleMessage = function(model, server, message) {
 };
 
 // Public function.
-raft.update = function(model) {
+paxos.update = function(model) {
   model.servers.forEach(function(server) {
     rules.startNewElection(model, server);
     rules.becomeLeader(model, server);
@@ -351,43 +351,43 @@ raft.update = function(model) {
 };
 
 // Public function.
-raft.stop = function(model, server) {
+paxos.stop = function(model, server) {
   server.state = 'stopped';
   server.electionAlarm = 0;
 };
 
 // Public function.
-raft.resume = function(model, server) {
+paxos.resume = function(model, server) {
   server.state = 'follower';
   server.electionAlarm = makeElectionAlarm(model.time);
 };
 
 // Public function.
-raft.resumeAll = function(model) {
+paxos.resumeAll = function(model) {
   model.servers.forEach(function(server) {
-    raft.resume(model, server);
+    paxos.resume(model, server);
   });
 };
 
-raft.restart = function(model, server) {
-  raft.stop(model, server);
-  raft.resume(model, server);
+paxos.restart = function(model, server) {
+  paxos.stop(model, server);
+  paxos.resume(model, server);
 };
 
-raft.drop = function(model, message) {
+paxos.drop = function(model, message) {
   model.messages = model.messages.filter(function(m) {
     return m !== message;
   });
 };
 
-raft.timeout = function(model, server) {
+paxos.timeout = function(model, server) {
   server.state = 'follower';
   server.electionAlarm = 0;
   rules.startNewElection(model, server);
 };
 
-// Public function but may be Raft specific.
-raft.clientRequest = function(model, server) {
+// Public function but may be paxos specific.
+paxos.clientRequest = function(model, server) {
   if (server.state == 'leader') {
     server.log.push({term: server.term,
                      value: 'v'});
@@ -395,7 +395,7 @@ raft.clientRequest = function(model, server) {
 };
 
 // Public function.
-raft.spreadTimers = function(model) {
+paxos.spreadTimers = function(model) {
   var timers = [];
   model.servers.forEach(function(server) {
     if (server.electionAlarm > model.time &&
@@ -426,8 +426,8 @@ raft.spreadTimers = function(model) {
 };
 
 // Public function.
-raft.alignTimers = function(model) {
-  raft.spreadTimers(model);
+paxos.alignTimers = function(model) {
+  paxos.spreadTimers(model);
   var timers = [];
   model.servers.forEach(function(server) {
     if (server.electionAlarm > model.time &&
@@ -444,14 +444,14 @@ raft.alignTimers = function(model) {
   });
 };
 
-// Pubilc method but may be raft specific.
-raft.setupLogReplicationScenario = function(model) {
+// Pubilc method but may be paxos specific.
+paxos.setupLogReplicationScenario = function(model) {
   var s1 = model.servers[0];
-  raft.restart(model, model.servers[1]);
-  raft.restart(model, model.servers[2]);
-  raft.restart(model, model.servers[3]);
-  raft.restart(model, model.servers[4]);
-  raft.timeout(model, model.servers[0]);
+  paxos.restart(model, model.servers[1]);
+  paxos.restart(model, model.servers[2]);
+  paxos.restart(model, model.servers[3]);
+  paxos.restart(model, model.servers[4]);
+  paxos.timeout(model, model.servers[0]);
   rules.startNewElection(model, s1);
   model.servers[1].term = 2;
   model.servers[2].term = 2;
@@ -462,18 +462,18 @@ raft.setupLogReplicationScenario = function(model) {
   model.servers[3].votedFor = 1;
   model.servers[4].votedFor = 1;
   s1.voteGranted = util.makeMap(s1.peers, true);
-  raft.stop(model, model.servers[2]);
-  raft.stop(model, model.servers[3]);
-  raft.stop(model, model.servers[4]);
+  paxos.stop(model, model.servers[2]);
+  paxos.stop(model, model.servers[3]);
+  paxos.stop(model, model.servers[4]);
   rules.becomeLeader(model, s1);
-  raft.clientRequest(model, s1);
-  raft.clientRequest(model, s1);
-  raft.clientRequest(model, s1);
+  paxos.clientRequest(model, s1);
+  paxos.clientRequest(model, s1);
+  paxos.clientRequest(model, s1);
 };
 
-/* End Raft algorithm logic */
+/* End paxos algorithm logic */
 
-/* Begin Raft-specific visualization */
+/* Begin paxos-specific visualization */
 
 var ARC_WIDTH = 5;
 
@@ -504,7 +504,7 @@ var ringSpec = {
 };
 
 var serverSpec = function(id) {
-  var coord = util.circleCoord((id - 1) / raft.NUM_SERVERS,
+  var coord = util.circleCoord((id - 1) / paxos.NUM_SERVERS,
                                ringSpec.cx, ringSpec.cy, ringSpec.r);
   return {
     cx: coord.x,
@@ -559,19 +559,19 @@ var termColors = [
 ];
 
 var serverActions = [
-  ['stop', raft.stop],
-  ['resume', raft.resume],
-  ['restart', raft.restart],
-  ['time out', raft.timeout],
-  ['request', raft.clientRequest],
+  ['stop', paxos.stop],
+  ['resume', paxos.resume],
+  ['restart', paxos.restart],
+  ['time out', paxos.timeout],
+  ['request', paxos.clientRequest],
 ];
 
 var messageActions = [
-  ['drop', raft.drop],
+  ['drop', paxos.drop],
 ];
 
-// Public method but may be specific to Raft Only.
-raft.getLeader = function() {
+// Public method but may be specific to paxos Only.
+paxos.getLeader = function() {
   var leader = null;
   var term = 0;
   state.current.servers.forEach(function(server) {
@@ -690,10 +690,10 @@ var messageModal = function(model, message) {
 };
 
 // Public variable.
-raft.render = {};
+paxos.render = {};
 
 // Public function.
-raft.render.ring = function(svg) {
+paxos.render.ring = function(svg) {
   $('#pause').attr('transform',
     'translate(' + ringSpec.cx + ', ' + ringSpec.cy + ') ' +
     'scale(' + ringSpec.r / 3.5 + ')');
@@ -702,7 +702,7 @@ raft.render.ring = function(svg) {
 }
 
 // Public function.
-raft.render.servers = function(serversSame, svg) {
+paxos.render.servers = function(serversSame, svg) {
   state.current.servers.forEach(function(server) {
     var serverNode = $('#server-' + server.id, svg);
     $('path', serverNode)
@@ -721,7 +721,7 @@ raft.render.servers = function(serversSame, svg) {
       votesGroup.empty();
       if (server.state == 'candidate') {
         state.current.servers.forEach(function (peer) {
-          var coord = util.circleCoord((peer.id - 1) / raft.NUM_SERVERS,
+          var coord = util.circleCoord((peer.id - 1) / paxos.NUM_SERVERS,
                                        serverSpec(server.id).cx,
                                        serverSpec(server.id).cy,
                                        serverSpec(server.id).r * 5/8);
@@ -779,7 +779,7 @@ raft.render.servers = function(serversSame, svg) {
 };
 
 // Public API.
-raft.appendServerInfo = function(state, svg) {
+paxos.appendServerInfo = function(state, svg) {
   state.current.servers.forEach(function(server) {
     var s = serverSpec(server.id);
     $('#servers', svg).append(
@@ -789,7 +789,7 @@ raft.appendServerInfo = function(state, svg) {
         .append(util.SVG('text')
                   .attr('class', 'serverid')
                   .text('S' + server.id)
-                  .attr(util.circleCoord((server.id - 1) / raft.NUM_SERVERS,
+                  .attr(util.circleCoord((server.id - 1) / paxos.NUM_SERVERS,
                                           ringSpec.cx, ringSpec.cy, ringSpec.r + 50)))
         .append(util.SVG('a')
           .append(util.SVG('circle')
@@ -806,13 +806,13 @@ raft.appendServerInfo = function(state, svg) {
           ));
   });
   // Pausing the execution here. The servers are further colored each
-  // frame by the remaining logic part of raft. Full colorization can
+  // frame by the remaining logic part of paxos. Full colorization can
   // be done after we start changing those.
   debugger;
 }
 
 // Public function.
-raft.render.entry = function(spec, entry, committed) {
+paxos.render.entry = function(spec, entry, committed) {
   return util.SVG('g')
     .attr('class', 'entry ' + (committed ? 'committed' : 'uncommitted'))
     .append(util.SVG('rect')
@@ -826,7 +826,7 @@ raft.render.entry = function(spec, entry, committed) {
 };
 
 // Public function.
-raft.render.logs = function(svg) {
+paxos.render.logs = function(svg) {
   var LABEL_WIDTH = 25;
   var INDEX_HEIGHT = 25;
   var logsGroup = $('.logs', svg);
@@ -835,8 +835,8 @@ raft.render.logs = function(svg) {
     util.SVG('rect')
       .attr('id', 'logsbg')
       .attr(logsSpec));
-  var height = (logsSpec.height - INDEX_HEIGHT) / raft.NUM_SERVERS;
-  var leader = raft.getLeader();
+  var height = (logsSpec.height - INDEX_HEIGHT) / paxos.NUM_SERVERS;
+  var leader = paxos.getLeader();
   var indexSpec = {
     x: logsSpec.x + LABEL_WIDTH + logsSpec.width * 0.05,
     y: logsSpec.y + 2*height/6,
@@ -889,7 +889,7 @@ raft.render.logs = function(svg) {
     }
     server.log.forEach(function(entry, i) {
       var index = i + 1;
-        log.append(raft.render.entry(
+        log.append(paxos.render.entry(
              logEntrySpec(index),
              entry,
              index <= server.commitIndex));
@@ -913,7 +913,7 @@ raft.render.logs = function(svg) {
 };
 
 // Public function.
-raft.render.messages = function(messagesSame, svg) {
+paxos.render.messages = function(messagesSame, svg) {
   var messagesGroup = $('#messages', svg);
   if (!messagesSame) {
     messagesGroup.empty();
@@ -992,6 +992,6 @@ raft.render.messages = function(messagesSame, svg) {
   });
 };
 
-/* End Raft-specific visualization */
+/* End paxos-specific visualization */
 
 })();
