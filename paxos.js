@@ -11,8 +11,62 @@ var raft = {};
 
 /* Begin Raft algorithm logic */
 
+// Configure these variables to define the number of proposers, accepters 
+// and learners in the consensus.
+raft.NUM_PROPOSERS = 1;
+raft.NUM_ACCEPTORS = 3;
+raft.NUM_LEARNERS = 1;
+
 // Public Variable.
-raft.NUM_SERVERS = 5;
+raft.NUM_SERVERS = raft.NUM_PROPOSERS + raft.NUM_ACCEPTORS + raft.NUM_LEARNERS;
+
+// Use these utils to identify server state.
+const SERVER_STATE = {
+  PROPOSER: 'proposer',
+  ACCEPTOR: 'acceptor',
+  LEARNER: 'learner',
+  UNKNOWN: 'unknown',
+}
+
+// Translate ID in range [1, NUM_SERVERS] to server state. Returns
+// UNKNOWN if ID is out of bound.
+var serverIdToState = function(id) {
+  if (id <= 0 || id > raft.NUM_SERVERS) {
+    return SERVER_STATE.UNKNOWN;
+  }
+
+  if (id <= raft.NUM_PROPOSERS) {
+    return SERVER_STATE.PROPOSER;
+  }
+
+  if (id <= raft.NUM_PROPOSERS + raft.NUM_ACCEPTORS) {
+    return SERVER_STATE.ACCEPTOR;
+  }
+
+  return SERVER_STATE.LEARNER;
+}
+
+// Define color per server state. Returns 'black' for unknown state.
+// (TODO: tune the colors to look smoother.)
+var serverStateToColor = function(state) {
+  if (state === SERVER_STATE.PROPOSER) {
+    return 'green';
+  }
+
+  if (state === SERVER_STATE.ACCEPTOR) {
+    return 'blue';
+  }
+
+  if (state === SERVER_STATE.LEARNER) {
+    return 'yellow';
+  }
+
+  return 'black'; // UNKNOWN.
+}
+
+var serverIdToColor = function(id) {
+  return serverStateToColor(serverIdToState(id));
+}
 
 var RPC_TIMEOUT = 50000;
 var MIN_RPC_LATENCY = 10000;
@@ -61,7 +115,7 @@ raft.server = function(id, peers) {
   return {
     id: id,
     peers: peers,
-    state: 'follower',
+    state: 'acceptor',
     term: 1,
     votedFor: null,
     log: [],
@@ -111,6 +165,19 @@ rules.sendRequestVote = function(model, server, peer) {
       lastLogTerm: logTerm(server.log, server.log.length),
       lastLogIndex: server.log.length});
   }
+};
+
+//send request from client to proposer
+raft.sendClientRequest = function(model, server, proposer) {
+  var group = util.groupServers(model);
+  var clientId = group[0].id;
+  var proposers = group[1];
+  proposers.forEach(function(proposers){
+    sendRequest(model, {
+      from: clientId,
+      to: proposers.id,
+      type: 'ClientRequest'});
+  });
 };
 
 rules.becomeLeader = function(model, server) {
@@ -728,6 +795,7 @@ raft.appendServerInfo = function(state, svg) {
           .append(util.SVG('circle')
                     .attr('class', 'background')
                     .attr(s))
+                    .attr('fill', serverIdToColor(server.id))
           .append(util.SVG('g')
                     .attr('class', 'votes'))
           .append(util.SVG('path')
@@ -737,6 +805,10 @@ raft.appendServerInfo = function(state, svg) {
                     .attr({x: s.cx, y: s.cy}))
           ));
   });
+  // Pausing the execution here. The servers are further colored each
+  // frame by the remaining logic part of raft. Full colorization can
+  // be done after we start changing those.
+  debugger;
 }
 
 // Public function.
