@@ -13,7 +13,7 @@ var state;
 var record;
 var replay;
 
-var protocol = raft;
+var protocol = paxos;
 
 $(function() {
 
