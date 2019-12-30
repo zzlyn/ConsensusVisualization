@@ -71,7 +71,6 @@ var serverIdToColor = function(id) {
 var RPC_TIMEOUT = 50000;
 var MIN_RPC_LATENCY = 10000;
 var MAX_RPC_LATENCY = 15000;
-var ELECTION_TIMEOUT = 100000;
 var BATCH_SIZE = 1;
 
 var sendMessage = function(model, message) {
@@ -106,10 +105,6 @@ var logTerm = function(log, index) {
 var rules = {};
 paxos.rules = rules;
 
-var makeElectionAlarm = function(now) {
-  return now + (Math.random() + 1) * ELECTION_TIMEOUT;
-};
-
 // Public API.
 paxos.server = function(id, peers) {
   return {
@@ -117,55 +112,14 @@ paxos.server = function(id, peers) {
     peers: peers,
     state: 'acceptor',
     term: 1,
-    votedFor: null,
     log: [],
     commitIndex: 0,
-    electionAlarm: makeElectionAlarm(0),
-    voteGranted:  util.makeMap(peers, false),
     matchIndex:   util.makeMap(peers, 0),
     nextIndex:    util.makeMap(peers, 1),
     rpcDue:       util.makeMap(peers, 0),
-    heartbeatDue: util.makeMap(peers, 0),
   };
 };
 
-var stepDown = function(model, server, term) {
-  server.term = term;
-  server.state = 'follower';
-  server.votedFor = null;
-  if (server.electionAlarm <= model.time || server.electionAlarm == util.Inf) {
-    server.electionAlarm = makeElectionAlarm(model.time);
-  }
-};
-
-rules.startNewElection = function(model, server) {
-  if ((server.state == 'follower' || server.state == 'candidate') &&
-      server.electionAlarm <= model.time) {
-    server.electionAlarm = makeElectionAlarm(model.time);
-    server.term += 1;
-    server.votedFor = server.id;
-    server.state = 'candidate';
-    server.voteGranted  = util.makeMap(server.peers, false);
-    server.matchIndex   = util.makeMap(server.peers, 0);
-    server.nextIndex    = util.makeMap(server.peers, 1);
-    server.rpcDue       = util.makeMap(server.peers, 0);
-    server.heartbeatDue = util.makeMap(server.peers, 0);
-  }
-};
-
-rules.sendRequestVote = function(model, server, peer) {
-  if (server.state == 'candidate' &&
-      server.rpcDue[peer] <= model.time) {
-    server.rpcDue[peer] = model.time + RPC_TIMEOUT;
-    sendRequest(model, {
-      from: server.id,
-      to: peer,
-      type: 'RequestVote',
-      term: server.term,
-      lastLogTerm: logTerm(server.log, server.log.length),
-      lastLogIndex: server.log.length});
-  }
-};
 
 //send request from client to proposer
 paxos.sendClientRequest = function(model, server, proposer) {
@@ -180,23 +134,10 @@ paxos.sendClientRequest = function(model, server, proposer) {
   });
 };
 
-rules.becomeLeader = function(model, server) {
-  if (server.state == 'candidate' &&
-      util.countTrue(util.mapValues(server.voteGranted)) + 1 > Math.floor(paxos.NUM_SERVERS / 2)) {
-    //console.log('server ' + server.id + ' is leader in term ' + server.term);
-    server.state = 'leader';
-    server.nextIndex    = util.makeMap(server.peers, server.log.length + 1);
-    server.rpcDue       = util.makeMap(server.peers, util.Inf);
-    server.heartbeatDue = util.makeMap(server.peers, 0);
-    server.electionAlarm = util.Inf;
-  }
-};
-
 rules.sendAppendEntries = function(model, server, peer) {
   if (server.state == 'leader' &&
-      (server.heartbeatDue[peer] <= model.time ||
-       (server.nextIndex[peer] <= server.log.length &&
-        server.rpcDue[peer] <= model.time))) {
+      (server.nextIndex[peer] <= server.log.length &&
+        server.rpcDue[peer] <= model.time)) {
     var prevIndex = server.nextIndex[peer] - 1;
     var lastIndex = Math.min(prevIndex + BATCH_SIZE,
                              server.log.length);
@@ -211,8 +152,6 @@ rules.sendAppendEntries = function(model, server, peer) {
       prevTerm: logTerm(server.log, prevIndex),
       entries: server.log.slice(prevIndex, lastIndex),
       commitIndex: Math.min(server.commitIndex, lastIndex)});
-    server.rpcDue[peer] = model.time + RPC_TIMEOUT;
-    server.heartbeatDue[peer] = model.time + ELECTION_TIMEOUT / 2;
   }
 };
 
@@ -226,36 +165,6 @@ rules.advanceCommitIndex = function(model, server) {
   }
 };
 
-var handleRequestVoteRequest = function(model, server, request) {
-  if (server.term < request.term)
-    stepDown(model, server, request.term);
-  var granted = false;
-  if (server.term == request.term &&
-      (server.votedFor === null ||
-       server.votedFor == request.from) &&
-      (request.lastLogTerm > logTerm(server.log, server.log.length) ||
-       (request.lastLogTerm == logTerm(server.log, server.log.length) &&
-        request.lastLogIndex >= server.log.length))) {
-    granted = true;
-    server.votedFor = request.from;
-    server.electionAlarm = makeElectionAlarm(model.time);
-  }
-  sendReply(model, request, {
-    term: server.term,
-    granted: granted,
-  });
-};
-
-var handleRequestVoteReply = function(model, server, reply) {
-  if (server.term < reply.term)
-    stepDown(model, server, reply.term);
-  if (server.state == 'candidate' &&
-      server.term == reply.term) {
-    server.rpcDue[reply.from] = util.Inf;
-    server.voteGranted[reply.from] = reply.granted;
-  }
-};
-
 var handleAppendEntriesRequest = function(model, server, request) {
   var success = false;
   var matchIndex = 0;
@@ -263,7 +172,6 @@ var handleAppendEntriesRequest = function(model, server, request) {
     stepDown(model, server, request.term);
   if (server.term == request.term) {
     server.state = 'follower';
-    server.electionAlarm = makeElectionAlarm(model.time);
     if (request.prevIndex === 0 ||
         (request.prevIndex <= server.log.length &&
          logTerm(server.log, request.prevIndex) == request.prevTerm)) {
@@ -308,12 +216,7 @@ var handleAppendEntriesReply = function(model, server, reply) {
 var handleMessage = function(model, server, message) {
   if (server.state == 'stopped')
     return;
-  if (message.type == 'RequestVote') {
-    if (message.direction == 'request')
-      handleRequestVoteRequest(model, server, message);
-    else
-      handleRequestVoteReply(model, server, message);
-  } else if (message.type == 'AppendEntries') {
+  if (message.type == 'AppendEntries') {
     if (message.direction == 'request')
       handleAppendEntriesRequest(model, server, message);
     else
@@ -324,11 +227,8 @@ var handleMessage = function(model, server, message) {
 // Public function.
 paxos.update = function(model) {
   model.servers.forEach(function(server) {
-    rules.startNewElection(model, server);
-    rules.becomeLeader(model, server);
     rules.advanceCommitIndex(model, server);
     server.peers.forEach(function(peer) {
-      rules.sendRequestVote(model, server, peer);
       rules.sendAppendEntries(model, server, peer);
     });
   });
@@ -353,13 +253,11 @@ paxos.update = function(model) {
 // Public function.
 paxos.stop = function(model, server) {
   server.state = 'stopped';
-  server.electionAlarm = 0;
 };
 
 // Public function.
 paxos.resume = function(model, server) {
   server.state = 'follower';
-  server.electionAlarm = makeElectionAlarm(model.time);
 };
 
 // Public function.
@@ -380,68 +278,12 @@ paxos.drop = function(model, message) {
   });
 };
 
-paxos.timeout = function(model, server) {
-  server.state = 'follower';
-  server.electionAlarm = 0;
-  rules.startNewElection(model, server);
-};
-
 // Public function but may be Raft specific.
 paxos.clientRequest = function(model, server) {
   if (server.state == 'leader') {
     server.log.push({term: server.term,
                      value: 'v'});
   }
-};
-
-// Public function.
-paxos.spreadTimers = function(model) {
-  var timers = [];
-  model.servers.forEach(function(server) {
-    if (server.electionAlarm > model.time &&
-        server.electionAlarm < util.Inf) {
-      timers.push(server.electionAlarm);
-    }
-  });
-  timers.sort(util.numericCompare);
-  if (timers.length > 1 &&
-      timers[1] - timers[0] < MAX_RPC_LATENCY) {
-    if (timers[0] > model.time + MAX_RPC_LATENCY) {
-      model.servers.forEach(function(server) {
-        if (server.electionAlarm == timers[0]) {
-          server.electionAlarm -= MAX_RPC_LATENCY;
-          console.log('adjusted S' + server.id + ' timeout forward');
-        }
-      });
-    } else {
-      model.servers.forEach(function(server) {
-        if (server.electionAlarm > timers[0] &&
-            server.electionAlarm < timers[0] + MAX_RPC_LATENCY) {
-          server.electionAlarm += MAX_RPC_LATENCY;
-          console.log('adjusted S' + server.id + ' timeout backward');
-        }
-      });
-    }
-  }
-};
-
-// Public function.
-paxos.alignTimers = function(model) {
-  paxos.spreadTimers(model);
-  var timers = [];
-  model.servers.forEach(function(server) {
-    if (server.electionAlarm > model.time &&
-        server.electionAlarm < util.Inf) {
-      timers.push(server.electionAlarm);
-    }
-  });
-  timers.sort(util.numericCompare);
-  model.servers.forEach(function(server) {
-    if (server.electionAlarm == timers[1]) {
-      server.electionAlarm = timers[0];
-      console.log('adjusted S' + server.id + ' timeout forward');
-    }
-  });
 };
 
 // Pubilc method but may be raft specific.
@@ -452,20 +294,13 @@ paxos.setupLogReplicationScenario = function(model) {
   paxos.restart(model, model.servers[3]);
   paxos.restart(model, model.servers[4]);
   paxos.timeout(model, model.servers[0]);
-  rules.startNewElection(model, s1);
   model.servers[1].term = 2;
   model.servers[2].term = 2;
   model.servers[3].term = 2;
   model.servers[4].term = 2;
-  model.servers[1].votedFor = 1;
-  model.servers[2].votedFor = 1;
-  model.servers[3].votedFor = 1;
-  model.servers[4].votedFor = 1;
-  s1.voteGranted = util.makeMap(s1.peers, true);
   paxos.stop(model, model.servers[2]);
   paxos.stop(model, model.servers[3]);
   paxos.stop(model, model.servers[4]);
-  rules.becomeLeader(model, s1);
   paxos.clientRequest(model, s1);
   paxos.clientRequest(model, s1);
   paxos.clientRequest(model, s1);
@@ -597,18 +432,14 @@ var serverModal = function(model, server) {
       .append('<th>peer</th>')
       .append('<th>next index</th>')
       .append('<th>match index</th>')
-      .append('<th>vote granted</th>')
       .append('<th>RPC due</th>')
-      .append('<th>heartbeat due</th>')
     );
   server.peers.forEach(function(peer) {
     peerTable.append($('<tr></tr>')
       .append('<td>S' + peer + '</td>')
       .append('<td>' + server.nextIndex[peer] + '</td>')
       .append('<td>' + server.matchIndex[peer] + '</td>')
-      .append('<td>' + server.voteGranted[peer] + '</td>')
       .append('<td>' + util.relTime(server.rpcDue[peer], model.time) + '</td>')
-      .append('<td>' + util.relTime(server.heartbeatDue[peer], model.time) + '</td>')
     );
   });
   $('.modal-body', m)
@@ -616,9 +447,7 @@ var serverModal = function(model, server) {
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
       .append(li('currentTerm', server.term))
-      .append(li('votedFor', server.votedFor))
       .append(li('commitIndex', server.commitIndex))
-      .append(li('electionAlarm', util.relTime(server.electionAlarm, model.time)))
       .append($('<dt>peers</dt>'))
       .append($('<dd></dd>').append(peerTable))
     );
@@ -650,14 +479,7 @@ var messageModal = function(model, message) {
       .append(li('sent', util.relTime(message.sendTime, model.time)))
       .append(li('deliver', util.relTime(message.recvTime, model.time)))
       .append(li('term', message.term));
-  if (message.type == 'RequestVote') {
-    if (message.direction == 'request') {
-      fields.append(li('lastLogIndex', message.lastLogIndex));
-      fields.append(li('lastLogTerm', message.lastLogTerm));
-    } else {
-      fields.append(li('granted', message.granted));
-    }
-  } else if (message.type == 'AppendEntries') {
+  if (message.type == 'AppendEntries') {
     if (message.direction == 'request') {
       var entries = '[' + message.entries.map(function(e) {
             return e.term;
@@ -712,33 +534,6 @@ paxos.render.servers = function(serversSame, svg) {
         .attr('style', 'fill: ' +
               (server.state == 'stopped' ? 'gray'
                 : termColors[server.term % termColors.length]));
-      var votesGroup = $('.votes', serverNode);
-      votesGroup.empty();
-      if (server.state == 'candidate') {
-        state.current.servers.forEach(function (peer) {
-          var coord = util.circleCoord((peer.id - 1) / paxos.NUM_SERVERS,
-                                       serverSpec(server.id).cx,
-                                       serverSpec(server.id).cy,
-                                       serverSpec(server.id).r * 5/8);
-          var state;
-          if (peer == server || server.voteGranted[peer.id]) {
-            state = 'have';
-          } else if (peer.votedFor == server.id && peer.term == server.term) {
-            state = 'coming';
-          } else {
-            state = 'no';
-          }
-          var granted = (peer == server ? true : server.voteGranted[peer.id]);
-          votesGroup.append(
-            util.SVG('circle')
-              .attr({
-                cx: coord.x,
-                cy: coord.y,
-                r: 5,
-              })
-              .attr('class', state));
-        });
-      }
       serverNode
         .unbind('click')
         .click(function() {
@@ -791,8 +586,6 @@ paxos.appendServerInfo = function(state, svg) {
                     .attr('class', 'background')
                     .attr(s))
                     .attr('fill', serverIdToColor(server.id))
-          .append(util.SVG('g')
-                    .attr('class', 'votes'))
           .append(util.SVG('text')
                     .attr('class', 'term')
                     .attr({x: s.cx, y: s.cy}))
@@ -958,8 +751,7 @@ paxos.render.messages = function(messagesSame, svg) {
       var dlist = [];
       dlist.push('M', s.cx - s.r, comma, s.cy,
                  'L', s.cx + s.r, comma, s.cy);
-      if ((message.type == 'RequestVote' && message.granted) ||
-          (message.type == 'AppendEntries' && message.success)) {
+      if (message.type == 'AppendEntries' && message.success) {
          dlist.push('M', s.cx, comma, s.cy - s.r,
                     'L', s.cx, comma, s.cy + s.r);
       }
