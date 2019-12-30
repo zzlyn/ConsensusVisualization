@@ -4,6 +4,7 @@
 /* jshint jquery: true */
 /* global util */
 /* global raft */
+/* global pbft */
 /* global makeState */
 'use strict';
 
