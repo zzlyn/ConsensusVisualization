@@ -76,17 +76,31 @@ var serverIdToColor = function(id) {
 }
 
 // Public API: server object.
-paxos.server = function(servID, servState, peers) {
+paxos.server = function(id, peers) {
 
   let serverAttrs = {
-    serverID: servID,
-    state: servState, //some online searches say a server can take multiple states
+    serverID: id,
+    state: 'default', //some online searches say a server can take multiple states
     peers: peers,
     maxPropNum: 0,  //this server promises to not allow proposals with proposalNum less than maxPropNum
 
     // following variables show the currently accepted proposal num and value
     acceptedProposalNum: -1,  //initially -1. If this is -1 then nothing was ever accepted and thus the acceptedProposalVal is invalid
     acceptedProposalVal: 'default', //can only use this value if acceptedProposalID !== 0
+
+    id: id,
+    peers: peers,
+    state: 'acceptor',
+    term: 1,
+    votedFor: null,
+    log: [],
+    commitIndex: 0,
+    electionAlarm: makeElectionAlarm(0),
+    voteGranted:  util.makeMap(peers, false),
+    matchIndex:   util.makeMap(peers, 0),
+    nextIndex:    util.makeMap(peers, 1),
+    rpcDue:       util.makeMap(peers, 0),
+    heartbeatDue: util.makeMap(peers, 0),
   };
 
   /* This could be used if we encounter any additional attributes that are unique to a server's state.
@@ -181,25 +195,6 @@ paxos.rules = rules;
 
 var makeElectionAlarm = function(now) {
   return now + (Math.random() + 1) * ELECTION_TIMEOUT;
-};
-
-// Public API.
-paxos.server = function(id, peers) {
-  return {
-    id: id,
-    peers: peers,
-    state: 'acceptor',
-    term: 1,
-    votedFor: null,
-    log: [],
-    commitIndex: 0,
-    electionAlarm: makeElectionAlarm(0),
-    voteGranted:  util.makeMap(peers, false),
-    matchIndex:   util.makeMap(peers, 0),
-    nextIndex:    util.makeMap(peers, 1),
-    rpcDue:       util.makeMap(peers, 0),
-    heartbeatDue: util.makeMap(peers, 0),
-  };
 };
 
 var stepDown = function(model, server, term) {
@@ -375,6 +370,22 @@ var handleAppendEntriesReply = function(model, server, reply) {
       server.nextIndex[reply.from] = Math.max(1, server.nextIndex[reply.from] - 1);
     }
     server.rpcDue[reply.from] = 0;
+  }
+};
+
+var handleMessage = function(model, server, message) {
+  if (server.state == 'stopped')
+    return;
+  if (message.type == 'RequestVote') {
+    if (message.direction == 'request')
+      handleRequestVoteRequest(model, server, message);
+    else
+      handleRequestVoteReply(model, server, message);
+  } else if (message.type == 'AppendEntries') {
+    if (message.direction == 'request')
+      handleAppendEntriesRequest(model, server, message);
+    else
+      handleAppendEntriesReply(model, server, message);
   }
 };
 
