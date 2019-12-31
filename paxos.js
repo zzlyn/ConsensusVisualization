@@ -380,9 +380,11 @@ var handlePrepareMessage = function(model, server, proposalMsg) {
     return;
   }
 
+  server.previousTerm = proposalMsg.term;
+
   // send reply (prepare reply = promise)
   sendReply(model, proposalMsg, {
-    
+    previouslyAcceptedTerm = -1;
   });
 }
 
