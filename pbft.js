@@ -12,12 +12,15 @@ var pbft = {};
 /* Begin PBFT algorithm logic */
 
 // Public Variable.
-pbft.NUM_SERVERS = 5;
+pbft.NUM_SERVERS = 4;
+var NUM_TOLERATED_BYZANTINE_FAULTS = 1;
+console.assert((NUM_TOLERATED_BYZANTINE_FAULTS * 3 + 1)
+               === pbft.NUM_SERVERS);
 
 var RPC_TIMEOUT = 50000;
 var MIN_RPC_LATENCY = 10000;
 var MAX_RPC_LATENCY = 15000;
-var ELECTION_TIMEOUT = 100000;
+var VIEW_CHANGE_TIMEOUT = 100000;
 var BATCH_SIZE = 1;
 
 var sendMessage = function(model, message) {
@@ -41,19 +44,15 @@ var sendReply = function(model, request, reply) {
   sendMessage(model, reply);
 };
 
-var logTerm = function(log, index) {
-  if (index < 1 || index > log.length) {
-    return 0;
-  } else {
-    return log[index - 1].term;
-  }
+var logView = function(log, index) {
+  // TODO
 };
 
 var rules = {};
 pbft.rules = rules;
 
-var makeElectionAlarm = function(now) {
-  return now + (Math.random() + 1) * ELECTION_TIMEOUT;
+var makeViewChangeAlarm = function(now) {
+  return now + (Math.random() + 1) * VIEW_CHANGE_TIMEOUT;
 };
 
 // Public API.
@@ -61,208 +60,201 @@ pbft.server = function(id, peers) {
   return {
     id: id,
     peers: peers,
-    state: 'follower',
-    term: 1,
-    votedFor: null,
+    state: 'backup',
+    view: 1,
+    n: 1,
     log: [],
-    commitIndex: 0,
-    electionAlarm: makeElectionAlarm(0),
-    voteGranted:  util.makeMap(peers, false),
-    matchIndex:   util.makeMap(peers, 0),
-    nextIndex:    util.makeMap(peers, 1),
-    rpcDue:       util.makeMap(peers, 0),
-    heartbeatDue: util.makeMap(peers, 0),
+    viewChangeAlarm: util.Inf,
+    viewChangeRequests: [],
+    key: "k." + id,
+    rpcDue: util.makeMap(peers, 0),
+    sentNewView: util.makeMap(peers, false),
   };
 };
 
-var stepDown = function(model, server, term) {
-  server.term = term;
-  server.state = 'follower';
-  server.votedFor = null;
-  if (server.electionAlarm <= model.time || server.electionAlarm == util.Inf) {
-    server.electionAlarm = makeElectionAlarm(model.time);
+var isPrepared = function(server, m, v, n, i) {
+
+}
+
+var isCommittedLocal = function(server, m, v, n, i) {
+
+}
+
+var isCommitted = function(server, m, v, n) {
+
+}
+
+var getLatestCheckpointProof = function(server) {
+  return 0;
+}
+
+var getLatestCheckpointSequenceNumber = function(server) {
+  return 0;
+}
+
+var getPrePreparedMessageProofs = function(server) {
+  return 0;
+}
+
+// Check if server should start a view change, and if so prepare data members
+// of server for the view change execution.
+rules.startNewViewChange = function(model, server) {
+  if ((server.state == 'backup'
+       || server.state == 'changing-view'
+       || server.state == 'candidate') &&
+      server.viewChangeAlarm <= model.time) {
+    var isNextPrimary = server.id == ((server.view + 1) % pbft.NUM_SERVERS);
+    // No timeout, until 2f + 1 view change requests are received
+    server.viewChangeAlarm = util.Inf;
+    // This is read to indicate that the server is not accepting messages
+    // other than VIEW-CHANGE, NEW-VIEW, or CHECKPOINT.
+    server.state = isNextPrimary ? 'candidate' : 'changing-view';
+    // Reset C ("a set of 2f + 1 valid CHECKPOINT messages proving the
+    // correctness of s").
+    server.checkpointProof = getLatestCheckpointProof(server);
+    // Reset S which is a set of sets S_m for each message m that this server
+    // has sent a PRE-PREPARE messgae for.
+    server.prePreparedMessageProofs = getPrePreparedMessageProofs(server);
+
+    // If server is the next primary, add its own view change request.
+    if (isNextPrimary) {
+      server.viewChangeRequests.push({
+        from: server.id, // this is `i` described in PBFT paper.
+        to: server.id,
+        type: 'VIEW-CHANGE',
+        v: server.view + 1,
+        n: getLatestCheckpointSequenceNumber(server),
+        C: server.checkpointProof,
+        P: server.prePreparedMessageProofs,
+      });
+    }
   }
 };
 
-rules.startNewElection = function(model, server) {
-  if ((server.state == 'follower' || server.state == 'candidate') &&
-      server.electionAlarm <= model.time) {
-    server.electionAlarm = makeElectionAlarm(model.time);
-    server.term += 1;
-    server.votedFor = server.id;
-    server.state = 'candidate';
-    server.voteGranted  = util.makeMap(server.peers, false);
-    server.matchIndex   = util.makeMap(server.peers, 0);
-    server.nextIndex    = util.makeMap(server.peers, 1);
-    server.rpcDue       = util.makeMap(server.peers, 0);
-    server.heartbeatDue = util.makeMap(server.peers, 0);
+rules.sendPrePrepare = function(model, server, peer) {
+  if (server.state == 'primary') {
+
   }
 };
 
-rules.sendRequestVote = function(model, server, peer) {
-  if (server.state == 'candidate' &&
+rules.sendPrepare = function(model, server, peer) {
+  // TODO
+};
+
+rules.sendCommit = function(model, server, peer) {
+  // TODO
+};
+
+rules.sendCheckpoint = function(model, server, peer) {
+  // TODO
+};
+
+rules.sendViewChange = function(model, server, peer) {
+  if (server.state == 'changing-view' &&
       server.rpcDue[peer] <= model.time) {
     server.rpcDue[peer] = model.time + RPC_TIMEOUT;
     sendRequest(model, {
-      from: server.id,
+      from: server.id, // this is `i` described in PBFT paper.
       to: peer,
-      type: 'RequestVote',
-      term: server.term,
-      lastLogTerm: logTerm(server.log, server.log.length),
-      lastLogIndex: server.log.length});
+      type: 'VIEW-CHANGE',
+      v: server.view + 1,
+      n: getLatestCheckpointSequenceNumber(server),
+      C: server.checkpointProof,
+      P: server.prePreparedMessageProofs,
+    });
   }
 };
 
-rules.becomeLeader = function(model, server) {
-  if (server.state == 'candidate' &&
-      util.countTrue(util.mapValues(server.voteGranted)) + 1 > Math.floor(pbft.NUM_SERVERS / 2)) {
-    //console.log('server ' + server.id + ' is leader in term ' + server.term);
-    server.state = 'leader';
-    server.nextIndex    = util.makeMap(server.peers, server.log.length + 1);
-    server.rpcDue       = util.makeMap(server.peers, util.Inf);
-    server.heartbeatDue = util.makeMap(server.peers, 0);
-    server.electionAlarm = util.Inf;
-  }
-};
-
-rules.sendAppendEntries = function(model, server, peer) {
-  if (server.state == 'leader' &&
-      (server.heartbeatDue[peer] <= model.time ||
-       (server.nextIndex[peer] <= server.log.length &&
-        server.rpcDue[peer] <= model.time))) {
-    var prevIndex = server.nextIndex[peer] - 1;
-    var lastIndex = Math.min(prevIndex + BATCH_SIZE,
-                             server.log.length);
-    if (server.matchIndex[peer] + 1 < server.nextIndex[peer])
-      lastIndex = prevIndex;
+rules.sendNewView = function(model, server, peer) {
+  // Need to check rpcDue here?
+  if ((server.state == 'candidate' &&
+       (server.viewChangeRequests.length ==
+        (2 * NUM_TOLERATED_BYZANTINE_FAULTS)))
+      || ((server.state == 'primary') &&
+          !server.sentNewView[peer])) { // Only send the NEW-VIEW message once.
+    server.sentNewView[peer] = true;
     sendRequest(model, {
       from: server.id,
       to: peer,
-      type: 'AppendEntries',
-      term: server.term,
-      prevIndex: prevIndex,
-      prevTerm: logTerm(server.log, prevIndex),
-      entries: server.log.slice(prevIndex, lastIndex),
-      commitIndex: Math.min(server.commitIndex, lastIndex)});
-    server.rpcDue[peer] = model.time + RPC_TIMEOUT;
-    server.heartbeatDue[peer] = model.time + ELECTION_TIMEOUT / 2;
+      type: 'NEW-VIEW',
+      v: (server.state == 'primary') ? server.view : (server.view + 1),
+      V: server.viewChangeRequests
+    });
   }
 };
 
-rules.advanceCommitIndex = function(model, server) {
-  var matchIndexes = util.mapValues(server.matchIndex).concat(server.log.length);
-  matchIndexes.sort(util.numericCompare);
-  var n = matchIndexes[Math.floor(pbft.NUM_SERVERS / 2)];
-  if (server.state == 'leader' &&
-      logTerm(server.log, n) == server.term) {
-    server.commitIndex = Math.max(server.commitIndex, n);
-  }
-};
-
-var handleRequestVoteRequest = function(model, server, request) {
-  if (server.term < request.term)
-    stepDown(model, server, request.term);
-  var granted = false;
-  if (server.term == request.term &&
-      (server.votedFor === null ||
-       server.votedFor == request.from) &&
-      (request.lastLogTerm > logTerm(server.log, server.log.length) ||
-       (request.lastLogTerm == logTerm(server.log, server.log.length) &&
-        request.lastLogIndex >= server.log.length))) {
-    granted = true;
-    server.votedFor = request.from;
-    server.electionAlarm = makeElectionAlarm(model.time);
-  }
-  sendReply(model, request, {
-    term: server.term,
-    granted: granted,
-  });
-};
-
-var handleRequestVoteReply = function(model, server, reply) {
-  if (server.term < reply.term)
-    stepDown(model, server, reply.term);
+rules.becomePrimary = function(model, server) {
+  // TODO: check that the to-be primary also has the highest view.
   if (server.state == 'candidate' &&
-      server.term == reply.term) {
-    server.rpcDue[reply.from] = util.Inf;
-    server.voteGranted[reply.from] = reply.granted;
+      (server.viewChangeRequests.length ==
+       (2 * NUM_TOLERATED_BYZANTINE_FAULTS))) {
+    var oldPrimary = pbft.getLeader();
+    if (oldPrimary !== null)
+      oldPrimary.state = 'backup';
+    server.state = 'primary';
+    server.view += 1;
   }
 };
 
-var handleAppendEntriesRequest = function(model, server, request) {
-  var success = false;
-  var matchIndex = 0;
-  if (server.term < request.term)
-    stepDown(model, server, request.term);
-  if (server.term == request.term) {
-    server.state = 'follower';
-    server.electionAlarm = makeElectionAlarm(model.time);
-    if (request.prevIndex === 0 ||
-        (request.prevIndex <= server.log.length &&
-         logTerm(server.log, request.prevIndex) == request.prevTerm)) {
-      success = true;
-      var index = request.prevIndex;
-      for (var i = 0; i < request.entries.length; i += 1) {
-        index += 1;
-        if (logTerm(server.log, index) != request.entries[i].term) {
-          while (server.log.length > index - 1)
-            server.log.pop();
-          server.log.push(request.entries[i]);
-        }
-      }
-      matchIndex = index;
-      server.commitIndex = Math.max(server.commitIndex,
-                                    request.commitIndex);
-    }
-  }
-  sendReply(model, request, {
-    term: server.term,
-    success: success,
-    matchIndex: matchIndex,
-  });
+var handlePrePrepareRequest = function(model, server, request) {
+  // TODO
 };
 
-var handleAppendEntriesReply = function(model, server, reply) {
-  if (server.term < reply.term)
-    stepDown(model, server, reply.term);
-  if (server.state == 'leader' &&
-      server.term == reply.term) {
-    if (reply.success) {
-      server.matchIndex[reply.from] = Math.max(server.matchIndex[reply.from],
-                                               reply.matchIndex);
-      server.nextIndex[reply.from] = reply.matchIndex + 1;
-    } else {
-      server.nextIndex[reply.from] = Math.max(1, server.nextIndex[reply.from] - 1);
-    }
-    server.rpcDue[reply.from] = 0;
+var handlePrepareRequest = function(model, server, request) {
+  // TODO
+};
+
+var handleCommitRequest = function(model, server, request) {
+  // TODO
+};
+
+var handleCheckpointRequest = function(model, server, request) {
+  // TODO
+};
+
+var handleViewChangeRequest = function(model, server, request) {
+  if ((server.state == 'backup' ||
+       server.state == 'candidate' ||
+       server.state == 'changing-view') &&
+      (server.id == (request.v % pbft.NUM_SERVERS))) {
+    // This server is the primary of the requested view.
+    server.state = 'candidate';
+    server.viewChangeRequests.push(request);
   }
+};
+
+var handleNewViewRequest = function(model, server, request) {
+  server.viewChangeAlarm = util.Inf;
+  server.view = request.v;
+  server.state = 'backup';
 };
 
 var handleMessage = function(model, server, message) {
-  if (server.state == 'stopped')
-    return;
-  if (message.type == 'RequestVote') {
-    if (message.direction == 'request')
-      handleRequestVoteRequest(model, server, message);
-    else
-      handleRequestVoteReply(model, server, message);
-  } else if (message.type == 'AppendEntries') {
-    if (message.direction == 'request')
-      handleAppendEntriesRequest(model, server, message);
-    else
-      handleAppendEntriesReply(model, server, message);
+  if (message.type == 'VIEW-CHANGE') {
+    if (message.direction == 'request') {
+      handleViewChangeRequest(model, server, message);
+    }
+  }
+  if (message.type == 'NEW-VIEW') {
+    if (message.direction == 'request') {
+      handleNewViewRequest(model, server, message);
+    }
   }
 };
 
 // Public function.
 pbft.update = function(model) {
   model.servers.forEach(function(server) {
-    rules.startNewElection(model, server);
-    rules.becomeLeader(model, server);
-    rules.advanceCommitIndex(model, server);
+    rules.startNewViewChange(model, server);
+    rules.becomePrimary(model, server);
+    // rules.advanceCommitIndex(model, server);
     server.peers.forEach(function(peer) {
-      rules.sendRequestVote(model, server, peer);
-      rules.sendAppendEntries(model, server, peer);
+      rules.sendPrePrepare(model, server, peer);
+      rules.sendPrepare(model, server, peer);
+      rules.sendCommit(model, server, peer);
+      rules.sendCheckpoint(model, server, peer);
+      rules.sendViewChange(model, server, peer);
+      rules.sendNewView(model, server, peer);
     });
   });
   var deliver = [];
@@ -284,56 +276,70 @@ pbft.update = function(model) {
 };
 
 // Public function.
-pbft.stop = function(model, server) {
-  server.state = 'stopped';
-  server.electionAlarm = 0;
+pbft.stop = function(/* TODO */) {
+  // TODO
 };
 
 // Public function.
-pbft.resume = function(model, server) {
-  server.state = 'follower';
-  server.electionAlarm = makeElectionAlarm(model.time);
+pbft.resume = function(/* TODO */) {
+  // TODO
 };
 
 // Public function.
-pbft.resumeAll = function(model) {
-  model.servers.forEach(function(server) {
-    pbft.resume(model, server);
-  });
+pbft.resumeAll = function(/* TODO */) {
+  // TODO
 };
 
-pbft.restart = function(model, server) {
-  pbft.stop(model, server);
-  pbft.resume(model, server);
+// Public function.
+pbft.restart = function(/* TODO */) {
+  // TODO
 };
 
-pbft.drop = function(model, message) {
-  model.messages = model.messages.filter(function(m) {
-    return m !== message;
-  });
+// Public function.
+pbft.drop = function(/* TODO */) {
+  // TODO
 };
 
-pbft.timeout = function(model, server) {
-  server.state = 'follower';
-  server.electionAlarm = 0;
-  rules.startNewElection(model, server);
+// Public function.
+pbft.timeout = function(/* TODO */) {
+  // TODO
 };
 
-// Public function but may be PBFT specific.
-pbft.clientRequest = function(model, server) {
-  if (server.state == 'leader') {
-    server.log.push({term: server.term,
-                     value: 'v'});
+// Public function.
+// TODO: send timestamp and client encryption here
+// TODO: client awareness, and forward messages from client to correct primary
+// TODO: client must accept f + 1 valid replies before accepting
+pbft.clientRequest = function(model, server, t) {
+  if (server.state == 'primary') {
+    server.log.push({
+      view: server.view,
+      value: 'v',
+      time: t,
+    });
   }
+
+  server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+  // Assume client decided to multicast the request right away, without waiting
+  // for a timeout after sending it to what it believed to be the primary.
+  // TODO: client should only multicast after waiting for a timeout to expire
+  //       after receiving no response from primary.
+  server.peers.forEach(function(peer) {
+    // When client multicasts to a backup, the backup starts a timeout for
+    // receiving an RPC from the current primary.
+
+    // We just overwrite the previous timeout here with the more recent one
+    // (for when multiple client requests are made before the timeout expires).
+    model.servers[peer - 1].viewChangeAlarm = makeViewChangeAlarm(model.time);
+  });
 };
 
 // Public function.
 pbft.spreadTimers = function(model) {
   var timers = [];
   model.servers.forEach(function(server) {
-    if (server.electionAlarm > model.time &&
-        server.electionAlarm < util.Inf) {
-      timers.push(server.electionAlarm);
+    if (server.viewChangeAlarm > model.time &&
+        server.viewChangeAlarm < util.Inf) {
+      timers.push(server.viewChangeAlarm);
     }
   });
   timers.sort(util.numericCompare);
@@ -341,16 +347,16 @@ pbft.spreadTimers = function(model) {
       timers[1] - timers[0] < MAX_RPC_LATENCY) {
     if (timers[0] > model.time + MAX_RPC_LATENCY) {
       model.servers.forEach(function(server) {
-        if (server.electionAlarm == timers[0]) {
-          server.electionAlarm -= MAX_RPC_LATENCY;
+        if (server.viewChangeAlarm == timers[0]) {
+          server.viewChangeAlarm -= MAX_RPC_LATENCY;
           console.log('adjusted S' + server.id + ' timeout forward');
         }
       });
     } else {
       model.servers.forEach(function(server) {
-        if (server.electionAlarm > timers[0] &&
-            server.electionAlarm < timers[0] + MAX_RPC_LATENCY) {
-          server.electionAlarm += MAX_RPC_LATENCY;
+        if (server.viewChangeAlarm > timers[0] &&
+            server.viewChangeAlarm < timers[0] + MAX_RPC_LATENCY) {
+          server.viewChangeAlarm += MAX_RPC_LATENCY;
           console.log('adjusted S' + server.id + ' timeout backward');
         }
       });
@@ -363,45 +369,18 @@ pbft.alignTimers = function(model) {
   pbft.spreadTimers(model);
   var timers = [];
   model.servers.forEach(function(server) {
-    if (server.electionAlarm > model.time &&
-        server.electionAlarm < util.Inf) {
-      timers.push(server.electionAlarm);
+    if (server.viewChangeAlarm > model.time &&
+        server.viewChangeAlarm < util.Inf) {
+      timers.push(server.viewChangeAlarm);
     }
   });
   timers.sort(util.numericCompare);
   model.servers.forEach(function(server) {
-    if (server.electionAlarm == timers[1]) {
-      server.electionAlarm = timers[0];
+    if (server.viewChangeAlarm == timers[1]) {
+      server.viewChangeAlarm = timers[0];
       console.log('adjusted S' + server.id + ' timeout forward');
     }
   });
-};
-
-// Pubilc method but may be pbft specific.
-pbft.setupLogReplicationScenario = function(model) {
-  var s1 = model.servers[0];
-  pbft.restart(model, model.servers[1]);
-  pbft.restart(model, model.servers[2]);
-  pbft.restart(model, model.servers[3]);
-  pbft.restart(model, model.servers[4]);
-  pbft.timeout(model, model.servers[0]);
-  rules.startNewElection(model, s1);
-  model.servers[1].term = 2;
-  model.servers[2].term = 2;
-  model.servers[3].term = 2;
-  model.servers[4].term = 2;
-  model.servers[1].votedFor = 1;
-  model.servers[2].votedFor = 1;
-  model.servers[3].votedFor = 1;
-  model.servers[4].votedFor = 1;
-  s1.voteGranted = util.makeMap(s1.peers, true);
-  pbft.stop(model, model.servers[2]);
-  pbft.stop(model, model.servers[3]);
-  pbft.stop(model, model.servers[4]);
-  rules.becomeLeader(model, s1);
-  pbft.clientRequest(model, s1);
-  pbft.clientRequest(model, s1);
-  pbft.clientRequest(model, s1);
 };
 
 /* End PBFT algorithm logic */
@@ -503,15 +482,15 @@ var messageActions = [
   ['drop', pbft.drop],
 ];
 
-// Public method but may be specific to PBFT Only.
+// Public method, returning the primary server as the "leader".
 pbft.getLeader = function() {
   var leader = null;
-  var term = 0;
+  var v = 0;
   state.current.servers.forEach(function(server) {
-    if (server.state == 'leader' &&
-        server.term > term) {
+    if (server.state == 'primary' &&
+        server.view > v) {
         leader = server;
-        term = server.term;
+        v = server.view;
     }
   });
   return leader;
@@ -528,30 +507,30 @@ var serverModal = function(model, server) {
     .addClass('table table-condensed')
     .append($('<tr></tr>')
       .append('<th>peer</th>')
-      .append('<th>next index</th>')
-      .append('<th>match index</th>')
-      .append('<th>vote granted</th>')
+      // .append('<th>next index</th>')
+      // .append('<th>match index</th>')
+      // .append('<th>vote granted</th>')
       .append('<th>RPC due</th>')
-      .append('<th>heartbeat due</th>')
+      // .append('<th>heartbeat due</th>')
     );
   server.peers.forEach(function(peer) {
     peerTable.append($('<tr></tr>')
       .append('<td>S' + peer + '</td>')
-      .append('<td>' + server.nextIndex[peer] + '</td>')
-      .append('<td>' + server.matchIndex[peer] + '</td>')
-      .append('<td>' + server.voteGranted[peer] + '</td>')
+      // .append('<td>' + server.nextIndex[peer] + '</td>')
+      // .append('<td>' + server.matchIndex[peer] + '</td>')
+      // .append('<td>' + server.voteGranted[peer] + '</td>')
       .append('<td>' + util.relTime(server.rpcDue[peer], model.time) + '</td>')
-      .append('<td>' + util.relTime(server.heartbeatDue[peer], model.time) + '</td>')
+      // .append('<td>' + util.relTime(server.heartbeatDue[peer], model.time) + '</td>')
     );
   });
   $('.modal-body', m)
     .empty()
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
-      .append(li('currentTerm', server.term))
-      .append(li('votedFor', server.votedFor))
-      .append(li('commitIndex', server.commitIndex))
-      .append(li('electionAlarm', util.relTime(server.electionAlarm, model.time)))
+      .append(li('currentView', server.view))
+      // .append(li('votedFor', server.votedFor))
+      // .append(li('commitIndex', server.commitIndex))
+      .append(li('viewChangeAlarm', util.relTime(server.viewChangeAlarm, model.time)))
       .append($('<dt>peers</dt>'))
       .append($('<dd></dd>').append(peerTable))
     );
@@ -570,57 +549,57 @@ var serverModal = function(model, server) {
   m.modal();
 };
 
-var messageModal = function(model, message) {
-  var m = $('#modal-details');
-  $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
-  $('.modal-title', m).text(message.type + ' ' + message.direction);
-  var li = function(label, value) {
-    return '<dt>' + label + '</dt><dd>' + value + '</dd>';
-  };
-  var fields = $('<dl class="dl-horizontal"></dl>')
-      .append(li('from', 'S' + message.from))
-      .append(li('to', 'S' + message.to))
-      .append(li('sent', util.relTime(message.sendTime, model.time)))
-      .append(li('deliver', util.relTime(message.recvTime, model.time)))
-      .append(li('term', message.term));
-  if (message.type == 'RequestVote') {
-    if (message.direction == 'request') {
-      fields.append(li('lastLogIndex', message.lastLogIndex));
-      fields.append(li('lastLogTerm', message.lastLogTerm));
-    } else {
-      fields.append(li('granted', message.granted));
-    }
-  } else if (message.type == 'AppendEntries') {
-    if (message.direction == 'request') {
-      var entries = '[' + message.entries.map(function(e) {
-            return e.term;
-      }).join(' ') + ']';
-      fields.append(li('prevIndex', message.prevIndex));
-      fields.append(li('prevTerm', message.prevTerm));
-      fields.append(li('entries', entries));
-      fields.append(li('commitIndex', message.commitIndex));
-    } else {
-      fields.append(li('success', message.success));
-      fields.append(li('matchIndex', message.matchIndex));
-    }
-  }
-  $('.modal-body', m)
-    .empty()
-    .append(fields);
-  var footer = $('.modal-footer', m);
-  footer.empty();
-  messageActions.forEach(function(action) {
-    footer.append(util.button(action[0])
-      .click(function(){
-        state.fork();
-        action[1](model, message);
-        state.save();
-        render.update();
-        m.modal('hide');
-      }));
-  });
-  m.modal();
-};
+// var messageModal = function(model, message) {
+//   var m = $('#modal-details');
+//   $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
+//   $('.modal-title', m).text(message.type + ' ' + message.direction);
+//   var li = function(label, value) {
+//     return '<dt>' + label + '</dt><dd>' + value + '</dd>';
+//   };
+//   var fields = $('<dl class="dl-horizontal"></dl>')
+//       .append(li('from', 'S' + message.from))
+//       .append(li('to', 'S' + message.to))
+//       .append(li('sent', util.relTime(message.sendTime, model.time)))
+//       .append(li('deliver', util.relTime(message.recvTime, model.time)))
+//       .append(li('view', message.view));
+//   if (message.type == 'RequestVote') {
+//     if (message.direction == 'request') {
+//       fields.append(li('lastLogIndex', message.lastLogIndex));
+//       fields.append(li('lastLogTerm', message.lastLogTerm));
+//     } else {
+//       fields.append(li('granted', message.granted));
+//     }
+//   } else if (message.type == 'AppendEntries') {
+//     if (message.direction == 'request') {
+//       var entries = '[' + message.entries.map(function(e) {
+//             return e.view;
+//       }).join(' ') + ']';
+//       fields.append(li('prevIndex', message.prevIndex));
+//       fields.append(li('prevTerm', message.prevTerm));
+//       fields.append(li('entries', entries));
+//       fields.append(li('commitIndex', message.commitIndex));
+//     } else {
+//       fields.append(li('success', message.success));
+//       fields.append(li('matchIndex', message.matchIndex));
+//     }
+//   }
+//   $('.modal-body', m)
+//     .empty()
+//     .append(fields);
+//   var footer = $('.modal-footer', m);
+//   footer.empty();
+//   messageActions.forEach(function(action) {
+//     footer.append(util.button(action[0])
+//       .click(function(){
+//         state.fork();
+//         action[1](model, message);
+//         state.save();
+//         render.update();
+//         m.modal('hide');
+//       }));
+//   });
+//   m.modal();
+// };
 
 // Public variable.
 pbft.render = {};
@@ -640,42 +619,42 @@ pbft.render.servers = function(serversSame, svg) {
     var serverNode = $('#server-' + server.id, svg);
     $('path', serverNode)
       .attr('d', arcSpec(serverSpec(server.id),
-        util.clamp((server.electionAlarm - state.current.time) /
-                    (ELECTION_TIMEOUT * 2),
+        util.clamp((server.viewChangeAlarm - state.current.time) /
+                    (VIEW_CHANGE_TIMEOUT * 2),
                     0, 1)));
     if (!serversSame) {
-      $('text.term', serverNode).text(server.term);
+      $('text.view', serverNode).text(server.view);
       serverNode.attr('class', 'server ' + server.state);
       $('circle.background', serverNode)
         .attr('style', 'fill: ' +
               (server.state == 'stopped' ? 'gray'
-                : termColors[server.term % termColors.length]));
+                : termColors[server.view % termColors.length]));
       var votesGroup = $('.votes', serverNode);
       votesGroup.empty();
       if (server.state == 'candidate') {
-        state.current.servers.forEach(function (peer) {
-          var coord = util.circleCoord((peer.id - 1) / pbft.NUM_SERVERS,
-                                       serverSpec(server.id).cx,
-                                       serverSpec(server.id).cy,
-                                       serverSpec(server.id).r * 5/8);
-          var state;
-          if (peer == server || server.voteGranted[peer.id]) {
-            state = 'have';
-          } else if (peer.votedFor == server.id && peer.term == server.term) {
-            state = 'coming';
-          } else {
-            state = 'no';
-          }
-          var granted = (peer == server ? true : server.voteGranted[peer.id]);
-          votesGroup.append(
-            util.SVG('circle')
-              .attr({
-                cx: coord.x,
-                cy: coord.y,
-                r: 5,
-              })
-              .attr('class', state));
-        });
+        // state.current.servers.forEach(function (peer) {
+        //   var coord = util.circleCoord((peer.id - 1) / pbft.NUM_SERVERS,
+        //                                serverSpec(server.id).cx,
+        //                                serverSpec(server.id).cy,
+        //                                serverSpec(server.id).r * 5/8);
+        //   var state;
+        //   if (peer == server || server.voteGranted[peer.id]) {
+        //     state = 'have';
+        //   } else if (peer.votedFor == server.id && peer.view == server.view) {
+        //     state = 'coming';
+        //   } else {
+        //     state = 'no';
+        //   }
+        //   var granted = (peer == server ? true : server.voteGranted[peer.id]);
+        //   votesGroup.append(
+        //     util.SVG('circle')
+        //       .attr({
+        //         cx: coord.x,
+        //         cy: coord.y,
+        //         r: 5,
+        //       })
+        //       .attr('class', state));
+        // });
       }
       serverNode
         .unbind('click')
@@ -728,12 +707,12 @@ pbft.appendServerInfo = function(state, svg) {
           .append(util.SVG('circle')
                     .attr('class', 'background')
                     .attr(s))
-          .append(util.SVG('g')
-                    .attr('class', 'votes'))
+          // .append(util.SVG('g')
+          //           .attr('class', 'votes'))
           .append(util.SVG('path')
                     .attr('style', 'stroke-width: ' + ARC_WIDTH))
           .append(util.SVG('text')
-                    .attr('class', 'term')
+                    .attr('class', 'view')
                     .attr({x: s.cx, y: s.cy}))
           ));
   });
@@ -742,15 +721,15 @@ pbft.appendServerInfo = function(state, svg) {
 // Public function.
 pbft.render.entry = function(spec, entry, committed) {
   return util.SVG('g')
-    .attr('class', 'entry ' + (committed ? 'committed' : 'uncommitted'))
+    // .attr('class', 'entry ' + (committed ? 'committed' : 'uncommitted'))
     .append(util.SVG('rect')
       .attr(spec)
       .attr('stroke-dasharray', committed ? '1 0' : '5 5')
-      .attr('style', 'fill: ' + termColors[entry.term % termColors.length]))
+      .attr('style', 'fill: ' + termColors[entry.v % termColors.length]))
     .append(util.SVG('text')
       .attr({x: spec.x + spec.width / 2,
              y: spec.y + spec.height / 2})
-      .text(entry.term));
+      .text(entry.v));
 };
 
 // Public function.
@@ -815,28 +794,28 @@ pbft.render.logs = function(svg) {
           .attr(logEntrySpec(index))
           .attr('class', 'log'));
     }
-    server.log.forEach(function(entry, i) {
-      var index = i + 1;
-        log.append(pbft.render.entry(
-             logEntrySpec(index),
-             entry,
-             index <= server.commitIndex));
-    });
-    if (leader !== null && leader != server) {
-      log.append(
-        util.SVG('circle')
-          .attr('title', 'match index')//.tooltip({container: 'body'})
-          .attr({cx: logEntrySpec(leader.matchIndex[server.id] + 1).x,
-                 cy: logSpec.y + logSpec.height,
-                 r: 5}));
-      var x = logEntrySpec(leader.nextIndex[server.id] + 0.5).x;
-      log.append(util.SVG('path')
-        .attr('title', 'next index')//.tooltip({container: 'body'})
-        .attr('style', 'marker-end:url(#TriangleOutM); stroke: black')
-        .attr('d', ['M', x, comma, logSpec.y + logSpec.height + logSpec.height/3,
-                    'L', x, comma, logSpec.y + logSpec.height + logSpec.height/6].join(' '))
-        .attr('stroke-width', 3));
-    }
+    // server.log.forEach(function(entry, i) {
+    //   var index = i + 1;
+    //     log.append(pbft.render.entry(
+    //          logEntrySpec(index),
+    //          entry,
+    //          index <= server.commitIndex));
+    // });
+    // if (leader !== null && leader != server) {
+    //   log.append(
+    //     util.SVG('circle')
+    //       .attr('title', 'match index')//.tooltip({container: 'body'})
+    //       .attr({cx: logEntrySpec(leader.matchIndex[server.id] + 1).x,
+    //              cy: logSpec.y + logSpec.height,
+    //              r: 5}));
+    //   var x = logEntrySpec(leader.nextIndex[server.id] + 0.5).x;
+    //   log.append(util.SVG('path')
+    //     .attr('title', 'next index')//.tooltip({container: 'body'})
+    //     .attr('style', 'marker-end:url(#TriangleOutM); stroke: black')
+    //     .attr('d', ['M', x, comma, logSpec.y + logSpec.height + logSpec.height/3,
+    //                 'L', x, comma, logSpec.y + logSpec.height + logSpec.height/6].join(' '))
+    //     .attr('stroke-width', 3));
+    // }
   });
 };
 

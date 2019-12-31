@@ -14,7 +14,7 @@ var state;
 var record;
 var replay;
 
-var protocol = raft;
+var protocol = pbft;
 
 $(function() {
 
