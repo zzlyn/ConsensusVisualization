@@ -28,6 +28,13 @@ const SERVER_STATE = {
   UNKNOWN: 'unknown',
 }
 
+const MESSAGE_STATE = {
+  PREPARE: 'prepare_msg',
+  PROMISE: 'promise_msg',
+  ACCEPT_RQ: 'accept_request_msg',
+  ACCEPT: 'accept_msg',
+}
+
 // Translate ID in range [1, NUM_SERVERS] to server state. Returns
 // UNKNOWN if ID is out of bound.
 var serverIdToState = function(id) {
@@ -77,8 +84,8 @@ raft.server = function(servID, servState, peers) {
     peers: peers,
     maxPropNum: 0,  //this server promises to not allow proposals with proposalNum less than maxPropNum
 
-    // following variables show the currently accepted proposal ID and value
-    acceptedProposalID: '0',  //initially 0. If this is 0 then nothing was ever accepted and thus the acceptedProposalVal is invalid
+    // following variables show the currently accepted proposal num and value
+    acceptedProposalNum: -1,  //initially -1. If this is -1 then nothing was ever accepted and thus the acceptedProposalVal is invalid
     acceptedProposalVal: 'default', //can only use this value if acceptedProposalID !== 0
   };
 
@@ -129,7 +136,8 @@ raft.message = function(propNum, servID) {
     proposalNum: propNum,
     proposalID: servID + proposalNum, //make each message unique to that server by including server ID
     proposalVal: 'default', //pass values as strings
-    messageState: 'default', //could be proposal message or ACK from accepter. default initially.
+    messageState: 'default', //could be one of the MESSAGE_STATEs.
+
   };
 };
 
@@ -357,8 +365,88 @@ var handleAppendEntriesReply = function(model, server, reply) {
   }
 };
 
+var handleProposalMessage = function(model, serverFrom, serverTo, proposalMsg) {
+  // send message from proposer to acceptor
+  // nothing to do here in terms of data variable changes
+  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.
+}
+
+var handlePromiseMessage = function(model, serverFrom, serverTo, promiseMsg) {
+  // send message from acceptor to proposer
+  // if message's proposal number less than serverFrom's max proposal number ignore message
+  if (serverFrom.maxPropNum < promiseMsg.proposalNum) {
+  	return;
+  }
+
+  // else update the serverFrom's max proposal number to the incoming message's proposal number
+  serverFrom.maxPropNum = promiseMsg.proposalNum;
+
+  // also serverTo needs to know the max of all accepted proposal IDs (only if there are any accepted IDs )
+  if (serverFrom.acceptedProposalNum !== -1 && serverFrom.acceptedProposalNum > serverTo.acceptedProposalNum) {
+  	serverTo.acceptedProposalNum = serverFrom.acceptedProposalNum;
+  	serverTo.acceptedProposalVal = serverFrom.acceptedProposalVal;
+  }
+
+  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.  
+}
+
+var handleAcceptRequestMessage = function(model, serverFrom, serverTo, acceptRQMsg) {
+  // send message from proposer to acceptor (to commit specific value)
+  // not sure about this one. wold love to dscuss this during meeting.
+  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.
+}
+
+var handleAcceptMessage = function(model, serverFrom, serverTo, acceptMsg) {
+  // send message from acceptor to proposer/learner
+  // if message's proposal number less than serverFrom's max proposal number ignore message
+  if (serverFrom.maxPropNum < acceptMsg.proposalNum) {
+  	return;
+  }
+
+  // else accept the proposal: set serverFrom's accepted proposal number to the accepted messages proposal number
+  if (serverFrom.acceptedProposalNum < acceptMsg.proposalNum) {
+  	serverFrom.acceptedProposalNum = acceptMsg.proposalNum;
+  	serverFrom.acceptedProposalVal = acceptMsg.proposalVal;
+  }
+
+  // also set serverTo's accepted proposal number to the accepted messages proposal number
+  // this serverTo could be learner or proposer
+  if (serverTo.acceptedProposalNum < acceptMsg.proposalNum) {
+  	serverTo.acceptedProposalNum = acceptMsg.proposalNum;
+  	serverTo.acceptedProposalVal = acceptMsg.proposalVal;
+  }
+}
+
 var handleMessage = function(model, server, message) {
-  if (server.state == 'stopped')
+  
+  model.servers.forEach(function(server) {
+    if (server.id == message.from) {
+      let servFrom = server;
+    }
+  });
+  let servFromID = servFrom.serverID;
+  let servToID = server.serverID;
+
+  // proposal message from proposer
+  if (message.messageState == MESSAGE_STATE.PREPARE) {
+  	handleProposalMessage(model, serverFrom, serverTo, message);
+  }
+  // proposal acknowledgement message from acceptor
+  else if (message.messageState == MESSAGE_STATE.PROMISE) {
+	handlePromiseMessage(model, serverFrom, serverTo, message);
+  }
+  // proposal message to acceptors to accept the value
+  else if (message.messageState == MESSAGE_STATE.ACCEPT_RQ) {
+  	handleAcceptRequestMessage(model, serverFrom, serverTo, message);
+  }
+  // else an 'ACCEPT', where acceptor sends message to proposers and learners
+  else {
+  	handleAcceptMessage(model, serverFrom, serverTo, message);
+  }
+
+  // NOTE: one other message is the message from Learner to the client
+
+  /*if (server.state == 'stopped')
     return;
   if (message.type == 'RequestVote') {
     if (message.direction == 'request')
@@ -370,7 +458,7 @@ var handleMessage = function(model, server, message) {
       handleAppendEntriesRequest(model, server, message);
     else
       handleAppendEntriesReply(model, server, message);
-  }
+  }*/
 };
 
 // Public function.
