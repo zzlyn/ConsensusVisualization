@@ -373,29 +373,17 @@ var handleAppendEntriesReply = function(model, server, reply) {
   }
 };
 
-var handlePrepareMessage = function(model, serverFrom, serverTo, proposalMsg) {
+var handlePrepareMessage = function(model, server, proposalMsg) {
   // send message from proposer to acceptor
-  // nothing to do here in terms of data variable changes
-  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.
-}
-
-var handlePromiseMessage = function(model, serverFrom, serverTo, promiseMsg) {
-  // send message from acceptor to proposer
-  // if message's proposal number less than serverFrom's max proposal number ignore message
-  if (serverFrom.maxPropNum < promiseMsg.proposalNum) {
+  // term check
+  if (proposalMsg.term < server.previousTerm ) {
     return;
   }
 
-  // else update the serverFrom's max proposal number to the incoming message's proposal number
-  serverFrom.maxPropNum = promiseMsg.proposalNum;
-
-  // also serverTo needs to know the max of all accepted proposal IDs (only if there are any accepted IDs )
-  if (serverFrom.acceptedProposalNum !== -1 && serverFrom.acceptedProposalNum > serverTo.acceptedProposalNum) {
-    serverTo.acceptedProposalNum = serverFrom.acceptedProposalNum;
-    serverTo.acceptedProposalVal = serverFrom.acceptedProposalVal;
-  }
-
-  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.  
+  // send reply (prepare reply = promise)
+  sendReply(model, proposalMsg, {
+    
+  });
 }
 
 var handleMessage = function(model, server, message) {
