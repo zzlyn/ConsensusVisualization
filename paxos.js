@@ -373,6 +373,102 @@ var handleAppendEntriesReply = function(model, server, reply) {
   }
 };
 
+var handleProposalMessage = function(model, serverFrom, serverTo, proposalMsg) {
+  // send message from proposer to acceptor
+  // nothing to do here in terms of data variable changes
+  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.
+}
+
+var handlePromiseMessage = function(model, serverFrom, serverTo, promiseMsg) {
+  // send message from acceptor to proposer
+  // if message's proposal number less than serverFrom's max proposal number ignore message
+  if (serverFrom.maxPropNum < promiseMsg.proposalNum) {
+    return;
+  }
+
+  // else update the serverFrom's max proposal number to the incoming message's proposal number
+  serverFrom.maxPropNum = promiseMsg.proposalNum;
+
+  // also serverTo needs to know the max of all accepted proposal IDs (only if there are any accepted IDs )
+  if (serverFrom.acceptedProposalNum !== -1 && serverFrom.acceptedProposalNum > serverTo.acceptedProposalNum) {
+    serverTo.acceptedProposalNum = serverFrom.acceptedProposalNum;
+    serverTo.acceptedProposalVal = serverFrom.acceptedProposalVal;
+  }
+
+  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.  
+}
+
+var handleAcceptRequestMessage = function(model, serverFrom, serverTo, acceptRQMsg) {
+  // send message from proposer to acceptor (to commit specific value)
+  // not sure about this one. wold love to dscuss this during meeting.
+  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.
+}
+
+var handleAcceptMessage = function(model, serverFrom, serverTo, acceptMsg) {
+  // send message from acceptor to proposer/learner
+  // if message's proposal number less than serverFrom's max proposal number ignore message
+  if (serverFrom.maxPropNum < acceptMsg.proposalNum) {
+    return;
+  }
+
+  // else accept the proposal: set serverFrom's accepted proposal number to the accepted messages proposal number
+  if (serverFrom.acceptedProposalNum < acceptMsg.proposalNum) {
+    serverFrom.acceptedProposalNum = acceptMsg.proposalNum;
+    serverFrom.acceptedProposalVal = acceptMsg.proposalVal;
+  }
+
+  // also set serverTo's accepted proposal number to the accepted messages proposal number
+  // this serverTo could be learner or proposer
+  if (serverTo.acceptedProposalNum < acceptMsg.proposalNum) {
+    serverTo.acceptedProposalNum = acceptMsg.proposalNum;
+    serverTo.acceptedProposalVal = acceptMsg.proposalVal;
+  }
+}
+
+var handleMessage = function(model, server, message) {
+  
+  model.servers.forEach(function(server) {
+    if (server.id == message.from) {
+      let servFrom = server;
+    }
+  });
+  let servFromID = servFrom.serverID;
+  let servToID = server.serverID;
+
+  // proposal message from proposer
+  if (message.messageState == MESSAGE_STATE.PREPARE) {
+    handleProposalMessage(model, serverFrom, serverTo, message);
+  }
+  // proposal acknowledgement message from acceptor
+  else if (message.messageState == MESSAGE_STATE.PROMISE) {
+  handlePromiseMessage(model, serverFrom, serverTo, message);
+  }
+  // proposal message to acceptors to accept the value
+  else if (message.messageState == MESSAGE_STATE.ACCEPT_RQ) {
+    handleAcceptRequestMessage(model, serverFrom, serverTo, message);
+  }
+  // else an 'ACCEPT', where acceptor sends message to proposers and learners
+  else {
+    handleAcceptMessage(model, serverFrom, serverTo, message);
+  }
+
+  // NOTE: one other message is the message from Learner to the client
+
+  /*if (server.state == 'stopped')
+    return;
+  if (message.type == 'RequestVote') {
+    if (message.direction == 'request')
+      handleRequestVoteRequest(model, server, message);
+    else
+      handleRequestVoteReply(model, server, message);
+  } else if (message.type == 'AppendEntries') {
+    if (message.direction == 'request')
+      handleAppendEntriesRequest(model, server, message);
+    else
+      handleAppendEntriesReply(model, server, message);
+  }*/
+};
+
 var handleMessage = function(model, server, message) {
   if (server.state == 'stopped')
     return;
