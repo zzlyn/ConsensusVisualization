@@ -342,42 +342,6 @@ var handleAppendEntriesReply = function(model, server, reply) {
   }
 };
 
-var handlePrepareMessage = function(model, server, proposalMsg) {
-  // send message from proposer to acceptor
-  // term check
-  if (proposalMsg.term < server.previousTerm ) {
-    return;
-  }
-  
-  server.previousTerm = proposalMsg.term;
-
-  // send reply (prepare reply = promise)
-  sendReply(model, proposalMsg, {
-    type: MESSAGE_TYPE.PROMISE,
-    previouslyAcceptedTerm: -1,
-  });
-}
-
-var handleMessageAcceptor = function(model, server, message) {
-  // proposal message from proposer
-  if (message.type == MESSAGE_TYPE.PREPARE) {
-    handlePrepareMessage(model, server, message);
-  }
-  /*
-  // proposal acknowledgement message from acceptor
-  else if (message.messageState == MESSAGE_STATE.PROMISE) {
-    handlePromiseMessage(model, server, message);
-  }
-  // proposal message to acceptors to accept the value
-  else if (message.messageState == MESSAGE_STATE.ACCEPT_RQ) {
-    handleAcceptRequestMessage(model, server, message);
-  }
-  // else an 'ACCEPT', where acceptor sends message to proposers and learners
-  else {
-    handleAcceptMessage(model, server, message);
-  }*/
-}
-
 var handleMessage = function(model, server, message) {
   switch(serverIdToState(server.id)) {
     case SERVER_STATE.PROPOSER:
@@ -471,7 +435,41 @@ var handleProposerUpdate = function(model, server) {
 
 /* Start Paxos Acceptor Implementation */
 
-// TODO(Ahbishek): Refactor methods to be here.
+var handlePrepareMessage = function(model, server, proposalMsg) {
+  // send message from proposer to acceptor
+  // term check
+  if (proposalMsg.term < server.previousTerm ) {
+    return;
+  }
+  
+  server.previousTerm = proposalMsg.term;
+
+  // send reply (prepare reply = promise)
+  sendReply(model, proposalMsg, {
+    type: MESSAGE_TYPE.PROMISE,
+    previouslyAcceptedTerm: -1,
+  });
+}
+
+var handleMessageAcceptor = function(model, server, message) {
+  // proposal message from proposer
+  if (message.type == MESSAGE_TYPE.PREPARE) {
+    handlePrepareMessage(model, server, message);
+  }
+  /*
+  // proposal acknowledgement message from acceptor
+  else if (message.messageState == MESSAGE_STATE.PROMISE) {
+    handlePromiseMessage(model, server, message);
+  }
+  // proposal message to acceptors to accept the value
+  else if (message.messageState == MESSAGE_STATE.ACCEPT_RQ) {
+    handleAcceptRequestMessage(model, server, message);
+  }
+  // else an 'ACCEPT', where acceptor sends message to proposers and learners
+  else {
+    handleAcceptMessage(model, server, message);
+  }*/
+}
 
 /* End acceptor implementation. */
 
