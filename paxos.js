@@ -373,8 +373,52 @@ var handleAppendEntriesReply = function(model, server, reply) {
   }
 };
 
+var handlePrepareMessage = function(model, server, proposalMsg) {
+  // send message from proposer to acceptor
+  // term check
+  if (proposalMsg.term < server.previousTerm ) {
+    return;
+  }
+
+  server.previousTerm = proposalMsg.term;
+
+  // send reply (prepare reply = promise)
+  sendReply(model, proposalMsg, {
+    previouslyAcceptedTerm = -1;
+  });
+}
+
 var handleMessage = function(model, server, message) {
-  if (server.state == 'stopped')
+  /*
+  model.servers.forEach(function(server) {
+    if (server.id == message.from) {
+      let servFrom = server;
+    }
+  });
+  let servFromID = servFrom.serverID;
+  let servToID = server.serverID;*/
+
+  // proposal message from proposer
+  if (message.messageState == MESSAGE_STATE.PREPARE) {
+    handlePrepareMessage(model, server, message);
+  }
+  /*
+  // proposal acknowledgement message from acceptor
+  else if (message.messageState == MESSAGE_STATE.PROMISE) {
+    handlePromiseMessage(model, server, message);
+  }
+  // proposal message to acceptors to accept the value
+  else if (message.messageState == MESSAGE_STATE.ACCEPT_RQ) {
+    handleAcceptRequestMessage(model, server, message);
+  }
+  // else an 'ACCEPT', where acceptor sends message to proposers and learners
+  else {
+    handleAcceptMessage(model, server, message);
+  }*/
+
+  // NOTE: one other message is the message from Learner to the client
+
+  /*if (server.state == 'stopped')
     return;
   if (message.type == 'RequestVote') {
     if (message.direction == 'request')
@@ -386,7 +430,7 @@ var handleMessage = function(model, server, message) {
       handleAppendEntriesRequest(model, server, message);
     else
       handleAppendEntriesReply(model, server, message);
-  }
+  }*/
 };
 
 // Public function.
