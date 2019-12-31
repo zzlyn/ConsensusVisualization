@@ -400,7 +400,7 @@ var handleMessage = function(model, server, message) {
 
   // proposal message from proposer
   if (message.messageState == MESSAGE_STATE.PREPARE) {
-    handleProposalMessage(model, server, message);
+    handlePrepareMessage(model, server, message);
   }
   /*
   // proposal acknowledgement message from acceptor
