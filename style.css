@@ -135,6 +135,37 @@ svg .message.client_reply {
 }
 /* End: PAXOS MESSAGES SVG COLORS */
 
+/* Start: PBFT MESSAGES SVG COLORS */
+
+svg .message.pre_prepare_msg {
+  fill:   #c900b7;
+  stroke: #c900b7;
+}
+
+/* prepare_msg already defined in Paxos section above */
+
+svg .message.commit_msg {
+  fill:   #302dff;
+  stroke: #302dff;
+}
+
+svg .message.view_change_msg {
+  fill:   #f09100;
+  stroke: #f09100;
+}
+
+svg .message.new_view_msg {
+  fill:   #dc0000;
+  stroke: #dc0000;
+}
+
+svg .message.checkpoint_msg {
+  fill:   #92bece;
+  stroke: #92bece;
+}
+
+/* END: PBFT MESSAGES SVG COLORS */
+
 svg .message.request circle {
 }
 

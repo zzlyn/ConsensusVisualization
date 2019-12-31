@@ -16,7 +16,7 @@ var replay;
 
 var protocol;
 
-//temporary var to indicate current active protocol, should be removed and use (protocol) later 
+//temporary var to indicate current active protocol, should be removed and use (protocol) later
 var activeProtocol;
 
 util.activate = function () {
@@ -85,13 +85,23 @@ util.activate = function () {
   }();
 
   (function () {
-    for (var i = 1; i <= protocol.NUM_SERVERS; i += 1) {
-      var peers = [];
-      for (var j = 1; j <= protocol.NUM_SERVERS; j += 1) {
-        if (i != j)
+    if (protocol == pbft) {
+      for (var i = 0; i < protocol.NUM_SERVERS; i += 1) {
+        var peers = [];
+        for (var j = 0; j < protocol.NUM_SERVERS; j += 1) {
           peers.push(j);
+        }
+        state.current.servers.push(protocol.server(i, peers));
       }
-      state.current.servers.push(protocol.server(i, peers));
+    } else {
+      for (var i = 1; i <= protocol.NUM_SERVERS; i += 1) {
+        var peers = [];
+        for (var j = 1; j <= protocol.NUM_SERVERS; j += 1) {
+          if (i != j)
+            peers.push(j);
+        }
+        state.current.servers.push(protocol.server(i, peers));
+      }
     }
   })();
 
