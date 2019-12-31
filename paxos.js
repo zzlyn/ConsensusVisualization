@@ -373,7 +373,7 @@ var handleAppendEntriesReply = function(model, server, reply) {
   }
 };
 
-var handleProposalMessage = function(model, serverFrom, serverTo, proposalMsg) {
+var handlePrepareMessage = function(model, serverFrom, serverTo, proposalMsg) {
   // send message from proposer to acceptor
   // nothing to do here in terms of data variable changes
   // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.
@@ -398,33 +398,6 @@ var handlePromiseMessage = function(model, serverFrom, serverTo, promiseMsg) {
   // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.  
 }
 
-var handleAcceptRequestMessage = function(model, serverFrom, serverTo, acceptRQMsg) {
-  // send message from proposer to acceptor (to commit specific value)
-  // not sure about this one. wold love to dscuss this during meeting.
-  // send reply ... sendReply will have to be modified (not doing this yet). More during discussion.
-}
-
-var handleAcceptMessage = function(model, serverFrom, serverTo, acceptMsg) {
-  // send message from acceptor to proposer/learner
-  // if message's proposal number less than serverFrom's max proposal number ignore message
-  if (serverFrom.maxPropNum < acceptMsg.proposalNum) {
-    return;
-  }
-
-  // else accept the proposal: set serverFrom's accepted proposal number to the accepted messages proposal number
-  if (serverFrom.acceptedProposalNum < acceptMsg.proposalNum) {
-    serverFrom.acceptedProposalNum = acceptMsg.proposalNum;
-    serverFrom.acceptedProposalVal = acceptMsg.proposalVal;
-  }
-
-  // also set serverTo's accepted proposal number to the accepted messages proposal number
-  // this serverTo could be learner or proposer
-  if (serverTo.acceptedProposalNum < acceptMsg.proposalNum) {
-    serverTo.acceptedProposalNum = acceptMsg.proposalNum;
-    serverTo.acceptedProposalVal = acceptMsg.proposalVal;
-  }
-}
-
 var handleMessage = function(model, server, message) {
   
   model.servers.forEach(function(server) {
@@ -441,7 +414,7 @@ var handleMessage = function(model, server, message) {
   }
   // proposal acknowledgement message from acceptor
   else if (message.messageState == MESSAGE_STATE.PROMISE) {
-  handlePromiseMessage(model, serverFrom, serverTo, message);
+    handlePromiseMessage(model, serverFrom, serverTo, message);
   }
   // proposal message to acceptors to accept the value
   else if (message.messageState == MESSAGE_STATE.ACCEPT_RQ) {
