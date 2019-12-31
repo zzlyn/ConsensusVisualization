@@ -28,6 +28,13 @@ const SERVER_STATE = {
   UNKNOWN: 'unknown',
 }
 
+const MESSAGE_STATE = {
+  PREPARE: 'prepare_msg',
+  PROMISE: 'promise_msg',
+  ACCEPT_RQ: 'accept_request_msg',
+  ACCEPT: 'accept_msg',
+}
+
 // Translate ID in range [1, NUM_SERVERS] to server state. Returns
 // UNKNOWN if ID is out of bound.
 var serverIdToState = function(id) {
@@ -67,6 +74,86 @@ var serverStateToColor = function(state) {
 var serverIdToColor = function(id) {
   return serverStateToColor(serverIdToState(id));
 }
+
+// Public API: server object.
+paxos.server = function(id, peers) {
+
+  let serverAttrs = {
+    serverID: id,
+    state: 'default', //some online searches say a server can take multiple states
+    peers: peers,
+    maxPropNum: 0,  //this server promises to not allow proposals with proposalNum less than maxPropNum
+
+    // following variables show the currently accepted proposal num and value
+    acceptedProposalNum: -1,  //initially -1. If this is -1 then nothing was ever accepted and thus the acceptedProposalVal is invalid
+    acceptedProposalVal: 'default', //can only use this value if acceptedProposalID !== 0
+
+    id: id,
+    peers: peers,
+    state: 'acceptor',
+    term: 1,
+    votedFor: null,
+    log: [],
+    commitIndex: 0,
+    electionAlarm: makeElectionAlarm(0),
+    voteGranted:  util.makeMap(peers, false),
+    matchIndex:   util.makeMap(peers, 0),
+    nextIndex:    util.makeMap(peers, 1),
+    rpcDue:       util.makeMap(peers, 0),
+    heartbeatDue: util.makeMap(peers, 0),
+  };
+
+  /* This could be used if we encounter any additional attributes that are unique to a server's state.
+  // separate attributes for different states. OR we could combine all of them into one.
+  if (servState == SERVER_STATE.PROPOSER) {
+    let propAttrs = {
+
+    };
+
+    serverAttrs = Object.assign({}, serverAttrs, propAttrs);
+  }
+  else if (servState == SERVER_STATE.ACCEPTOR) {
+    let acceptAttrs = {
+
+    };
+
+    serverAttrs = Object.assign({}, serverAttrs, acceptAttrs);
+  }
+  // else a 'learner'
+  else {
+    let learnAttrs = {
+
+    };
+
+    serverAttrs = Object.assign({}, serverAttrs, learnAttrs);
+  }*/
+
+  return serverAttrs;
+
+  /*{ ELECTIONS STUFF FOR DISTINGUISHED PROPOSER
+    term: 1,
+    votedFor: null,
+    log: [],
+    commitIndex: 0,
+    electionAlarm: makeElectionAlarm(0),
+    voteGranted:  util.makeMap(peers, false),
+    matchIndex:   util.makeMap(peers, 0),
+    nextIndex:    util.makeMap(peers, 1),
+    rpcDue:       util.makeMap(peers, 0),
+    heartbeatDue: util.makeMap(peers, 0),
+  };*/
+};
+
+// message object. (could be proposal message/ accepter ACKs to proposals/learners)
+paxos.message = function(propNum, servID) {
+  return {
+    proposalNum: propNum,
+    proposalID: servID + proposalNum, //make each message unique to that server by including server ID
+    proposalVal: 'default', //pass values as strings
+    messageState: 'default', //could be one of the MESSAGE_STATEs.
+
+  };
+};
 
 var RPC_TIMEOUT = 50000;
 var MIN_RPC_LATENCY = 10000;
@@ -108,25 +195,6 @@ paxos.rules = rules;
 
 var makeElectionAlarm = function(now) {
   return now + (Math.random() + 1) * ELECTION_TIMEOUT;
-};
-
-// Public API.
-paxos.server = function(id, peers) {
-  return {
-    id: id,
-    peers: peers,
-    state: 'acceptor',
-    term: 1,
-    votedFor: null,
-    log: [],
-    commitIndex: 0,
-    electionAlarm: makeElectionAlarm(0),
-    voteGranted:  util.makeMap(peers, false),
-    matchIndex:   util.makeMap(peers, 0),
-    nextIndex:    util.makeMap(peers, 1),
-    rpcDue:       util.makeMap(peers, 0),
-    heartbeatDue: util.makeMap(peers, 0),
-  };
 };
 
 var stepDown = function(model, server, term) {
