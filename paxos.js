@@ -9,7 +9,7 @@ var paxos = {};
 
 (function() {
 
-/* Begin Raft algorithm logic */
+/* Begin paxos algorithm logic */
 
 // Configure these variables to define the number of proposers, accepters 
 // and learners in the consensus.
@@ -26,6 +26,13 @@ const SERVER_STATE = {
   ACCEPTOR: 'acceptor',
   LEARNER: 'learner',
   UNKNOWN: 'unknown',
+}
+
+const MESSAGE_TYPE = {
+  PREPARE: 'prepare_msg',
+  PROMISE: 'promise_msg',
+  ACCEPT_RQ: 'accept_request_msg',
+  ACCEPTED: 'accept_msg',
 }
 
 // Translate ID in range [1, NUM_SERVERS] to server state. Returns
@@ -68,6 +75,57 @@ var serverIdToColor = function(id) {
   return serverStateToColor(serverIdToState(id));
 }
 
+// Public API: server object.
+paxos.server = function(id, peers) {
+
+  let serverAttrs = {
+    id: id,
+    state: serverIdToState(id), //some online searches say a server can take multiple states
+    peers: peers,
+    maxPropNum: 0,  //this server promises to not allow proposals with proposalNum less than maxPropNum
+
+    // following variables show the currently accepted proposal num and value
+    acceptedProposalNum: -1,  //initially -1. If this is -1 then nothing was ever accepted and thus the acceptedProposalVal is invalid
+    acceptedProposalVal: 'default', //can only use this value if acceptedProposalID !== 0
+
+    peers: peers,
+    term: 1,
+    votedFor: null,
+    log: [],
+    commitIndex: 0,
+    electionAlarm: makeElectionAlarm(0),
+    voteGranted:  util.makeMap(peers, false),
+    matchIndex:   util.makeMap(peers, 0),
+    nextIndex:    util.makeMap(peers, 1),
+    rpcDue:       util.makeMap(peers, 0),
+    heartbeatDue: util.makeMap(peers, 0),
+  };
+
+  // Proposer Specific Attributes.
+  if (serverAttrs.state === SERVER_STATE.PROPOSER) {
+    serverAttrs.shouldSendPrepare = true;
+    serverAttrs.grantedPromises = 0;
+  }
+
+  // Acceptor Specific Attributes.
+  if (serverAttrs.state === SERVER_STATE.ACCEPTOR) {
+    serverAttrs.previousTerm = -1;
+  }
+  
+  return serverAttrs;
+};
+
+// message object. (could be proposal message/ accepter ACKs to proposals/learners)
+paxos.message = function(propNum, servID) {
+  return {
+    proposalNum: propNum,
+    proposalID: servID + proposalNum, //make each message unique to that server by including server ID
+    proposalVal: 'default', //pass values as strings
+    messageState: 'default', //could be one of the MESSAGE_STATEs.
+
+  };
+};
+
 var RPC_TIMEOUT = 50000;
 var MIN_RPC_LATENCY = 10000;
 var MAX_RPC_LATENCY = 15000;
@@ -89,8 +147,6 @@ var sendRequest = function(model, request) {
 var sendReply = function(model, request, reply) {
   reply.from = request.to;
   reply.to = request.from;
-  reply.type = request.type;
-  reply.direction = 'reply';
   sendMessage(model, reply);
 };
 
@@ -119,7 +175,6 @@ paxos.server = function(id, peers) {
     rpcDue:       util.makeMap(peers, 0),
   };
 };
-
 
 //send request from client to proposer
 paxos.sendClientRequest = function(model, server, proposer) {
@@ -214,23 +269,157 @@ var handleAppendEntriesReply = function(model, server, reply) {
 };
 
 var handleMessage = function(model, server, message) {
-  if (server.state == 'stopped')
-    return;
-  if (message.type == 'AppendEntries') {
-    if (message.direction == 'request')
-      handleAppendEntriesRequest(model, server, message);
-    else
-      handleAppendEntriesReply(model, server, message);
+  switch(serverIdToState(server.id)) {
+    case SERVER_STATE.PROPOSER:
+      handleMessageProposer(model, server, message);
+      break;
+
+    case SERVER_STATE.ACCEPTOR:
+      handleMessageAcceptor(model, server, message);
+      break;
+
+    case SERVER_STATE.LEARNER:
+      // handleMessageLearner(model, server, message);
+      break;
+
+    default:
+      // Unknown.
+      break;
   }
 };
+
+/* Start Paxos Proposer Implementation. */
+
+var handleMessageProposer = function(model, server, message) {
+  // Accept phase.
+  if (server.waitingOnPromise) {
+    if (message.type === MESSAGE_TYPE.PROMISE) {
+      // Acceptor has previously accepted another value with a smaller
+      // term number. This proposer will try to propose for that value
+      // instead of its original value.
+      //
+      // The initial server.previousTerm is set to '-1' so this replacement
+      // is guaranteed to happen if there was a legit accepted value.
+      // 
+      // For Acceptors, previouslyAcceptedTerm and previouslyAcceptedValue
+      // should be set/unset together.
+      if (message.previouslyAcceptedTerm > server.previousTerm ) {
+        server.previousTerm = message.previouslyAcceptedTerm;
+        server.proposeValue = message.previouslyAcceptedValue;
+      }
+      server.grantedPromises += 1;
+    }
+  }
+}
+
+var handleProposerUpdate = function(model, server) {
+  // Prepare phase.
+  if (server.shouldSendPrepare) {
+    server.peers.forEach(function(peer) {
+      if (serverIdToState(peer) !== SERVER_STATE.ACCEPTOR) {
+        return; // Only propose to acceptors.
+      }
+      sendRequest(model, {
+        from: server.id,
+        to: peer,
+        type: MESSAGE_TYPE.PREPARE,
+        term: server.term,
+      });
+    });
+    server.shouldSendPrepare = false; // End the prepare phase.
+    server.waitingOnPromise = true; // Start the next phase.
+    // Used to compare & choose the largest accepted value to
+    // propose instead in the next phase.
+    server.previousTerm = -1; 
+    return;
+  }
+
+  // Accept phase.
+  if (server.waitingOnPromise) {
+    if (server.grantedPromises > paxos.NUM_ACCEPTORS / 2) {
+      // Server has quorum. End acccept-waiting phase.
+      server.waitingOnPromise = false;
+
+      // Sending Accept requests now.
+      server.peers.forEach(function(peer) {
+        if (serverIdToState(peer) !== SERVER_STATE.ACCEPTOR) {
+          return;
+        }
+        sendRequest(model, {
+          from: server.id,
+          to: peer,
+          type: 'accept',
+          term: server.term,
+          value: server.proposeValue,
+        });
+      });
+    }
+  }
+}
+
+/* End proposer implementation. */
+
+/* Start Paxos Acceptor Implementation */
+
+var handlePrepareMessage = function(model, server, proposalMsg) {
+  // send message from proposer to acceptor
+  // term check
+  if (proposalMsg.term < server.previousTerm ) {
+    return;
+  }
+  
+  server.previousTerm = proposalMsg.term;
+
+  // send reply (prepare reply = promise)
+  sendReply(model, proposalMsg, {
+    type: MESSAGE_TYPE.PROMISE,
+    previouslyAcceptedTerm: -1,
+  });
+}
+
+var handleMessageAcceptor = function(model, server, message) {
+  // proposal message from proposer
+  if (message.type == MESSAGE_TYPE.PREPARE) {
+    handlePrepareMessage(model, server, message);
+  }
+  /*
+  // proposal acknowledgement message from acceptor
+  else if (message.messageState == MESSAGE_STATE.PROMISE) {
+    handlePromiseMessage(model, server, message);
+  }
+  // proposal message to acceptors to accept the value
+  else if (message.messageState == MESSAGE_STATE.ACCEPT_RQ) {
+    handleAcceptRequestMessage(model, server, message);
+  }
+  // else an 'ACCEPT', where acceptor sends message to proposers and learners
+  else {
+    handleAcceptMessage(model, server, message);
+  }*/
+}
+
+/* End acceptor implementation. */
 
 // Public function.
 paxos.update = function(model) {
   model.servers.forEach(function(server) {
-    rules.advanceCommitIndex(model, server);
-    server.peers.forEach(function(peer) {
-      rules.sendAppendEntries(model, server, peer);
-    });
+    // Paxos.
+    switch (serverIdToState(server.id)) {
+      case SERVER_STATE.PROPOSER:
+        handleProposerUpdate(model, server);
+        break;
+
+      case SERVER_STATE.ACCEPTOR:
+        // handleAcceptorUpdate(model, server);
+        break;
+
+      case SERVER_STATE.LEARNER:
+        // handleLearnerUpdate(model, server);
+        break;
+
+      default:
+        // Unknown.
+        break;
+    }
   });
   var deliver = [];
   var keep = [];
@@ -278,7 +467,6 @@ paxos.drop = function(model, message) {
   });
 };
 
-// Public function but may be Raft specific.
 paxos.clientRequest = function(model, server) {
   if (server.state == 'leader') {
     server.log.push({term: server.term,
@@ -286,7 +474,6 @@ paxos.clientRequest = function(model, server) {
   }
 };
 
-// Pubilc method but may be raft specific.
 paxos.setupLogReplicationScenario = function(model) {
   var s1 = model.servers[0];
   paxos.restart(model, model.servers[1]);
@@ -306,9 +493,9 @@ paxos.setupLogReplicationScenario = function(model) {
   paxos.clientRequest(model, s1);
 };
 
-/* End Raft algorithm logic */
+/* End paxos algorithm logic */
 
-/* Begin Raft-specific visualization */
+/* Begin paxos-specific visualization */
 
 var ARC_WIDTH = 5;
 
@@ -402,7 +589,7 @@ var messageActions = [
   ['drop', paxos.drop],
 ];
 
-// Public method but may be specific to Raft Only.
+// Public method but may be specific to paxos Only.
 paxos.getLeader = function() {
   var leader = null;
   var term = 0;
@@ -587,10 +774,6 @@ paxos.appendServerInfo = function(state, svg) {
                     .attr({x: s.cx, y: s.cy}))
           ));
   });
-  // Pausing the execution here. The servers are further colored each
-  // frame by the remaining logic part of paxos. Full colorization can
-  // be done after we start changing those.
-  debugger;
 }
 
 // Public function.
@@ -743,6 +926,7 @@ paxos.render.messages = function(messagesSame, svg) {
                         (message.recvTime - message.sendTime),state.current);
     $('#message-' + i + ' circle', messagesGroup)
       .attr(s);
+    /* Refer to this later to differentiate messages
     if (message.direction == 'reply') {
       var dlist = [];
       dlist.push('M', s.cx - s.r, comma, s.cy,
@@ -753,7 +937,7 @@ paxos.render.messages = function(messagesSame, svg) {
       }
       $('#message-' + i + ' path.message-success', messagesGroup)
         .attr('d', dlist.join(' '));
-    }
+    } */
     var dir = $('#message-' + i + ' path.message-direction', messagesGroup);
     if (playback.isPaused()) {
       dir.attr('style', 'marker-end:url(#TriangleOutS-' + message.type + ')')
@@ -767,6 +951,6 @@ paxos.render.messages = function(messagesSame, svg) {
   });
 };
 
-/* End Raft-specific visualization */
+/* End paxos-specific visualization */
 
 })();
