@@ -13,15 +13,17 @@ var paxos = {};
 
 // Configure these variables to define the number of proposers, accepters 
 // and learners in the consensus.
+paxos.NUM_CLIENTS = 1;
 paxos.NUM_PROPOSERS = 1;
 paxos.NUM_ACCEPTORS = 3;
 paxos.NUM_LEARNERS = 1;
 
 // Public Variable.
-paxos.NUM_SERVERS = paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS + paxos.NUM_LEARNERS;
+paxos.NUM_SERVERS = paxos.NUM_CLIENTS + paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS + paxos.NUM_LEARNERS;
 
 // Use these utils to identify server state.
 const SERVER_STATE = {
+  CLIENT: 'client',
   PROPOSER: 'proposer',
   ACCEPTOR: 'acceptor',
   LEARNER: 'learner',
@@ -42,11 +44,15 @@ var serverIdToState = function(id) {
     return SERVER_STATE.UNKNOWN;
   }
 
-  if (id <= paxos.NUM_PROPOSERS) {
+  if (id <= paxos.NUM_CLIENTS) {
+    return SERVER_STATE.CLIENT;
+  }
+
+  if (id <= paxos.NUM_CLIENTS + paxos.NUM_PROPOSERS) {
     return SERVER_STATE.PROPOSER;
   }
 
-  if (id <= paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS) {
+  if (id <= paxos.NUM_CLIENTS + paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS) {
     return SERVER_STATE.ACCEPTOR;
   }
 
@@ -90,15 +96,11 @@ paxos.server = function(id, peers) {
 
     peers: peers,
     term: 1,
-    votedFor: null,
     log: [],
     commitIndex: 0,
-    electionAlarm: makeElectionAlarm(0),
-    voteGranted:  util.makeMap(peers, false),
     matchIndex:   util.makeMap(peers, 0),
     nextIndex:    util.makeMap(peers, 1),
     rpcDue:       util.makeMap(peers, 0),
-    heartbeatDue: util.makeMap(peers, 0),
   };
 
   // Proposer Specific Attributes.
@@ -126,7 +128,6 @@ paxos.message = function(propNum, servID) {
   };
 };
 
-var RPC_TIMEOUT = 50000;
 var MIN_RPC_LATENCY = 10000;
 var MAX_RPC_LATENCY = 15000;
 var BATCH_SIZE = 1;
@@ -160,21 +161,6 @@ var logTerm = function(log, index) {
 
 var rules = {};
 paxos.rules = rules;
-
-// Public API.
-paxos.server = function(id, peers) {
-  return {
-    id: id,
-    peers: peers,
-    state: 'acceptor',
-    term: 1,
-    log: [],
-    commitIndex: 0,
-    matchIndex:   util.makeMap(peers, 0),
-    nextIndex:    util.makeMap(peers, 1),
-    rpcDue:       util.makeMap(peers, 0),
-  };
-};
 
 //send request from client to proposer
 paxos.sendClientRequest = function(model, server, proposer) {
