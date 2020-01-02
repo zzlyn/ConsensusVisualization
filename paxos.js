@@ -105,7 +105,7 @@ paxos.server = function(id, peers) {
 
   // Proposer Specific Attributes.
   if (serverAttrs.state === SERVER_STATE.PROPOSER) {
-    serverAttrs.shouldSendPrepare = true;
+    serverAttrs.shouldSendPrepare = false;
     serverAttrs.grantedPromises = 0;
   }
 
@@ -278,6 +278,9 @@ var handleMessage = function(model, server, message) {
 
 var handleMessageProposer = function(model, server, message) {
   // Accept phase.
+  if (message.type == 'ClientRequest'){
+    server.shouldSendPrepare = true;
+  }
   if (server.waitingOnPromise) {
     if (message.type === MESSAGE_TYPE.PROMISE) {
       // Acceptor has previously accepted another value with a smaller
