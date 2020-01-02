@@ -31,6 +31,7 @@ const SERVER_STATE = {
 }
 
 const MESSAGE_TYPE = {
+  CLIENT_RQ: 'ClientRequest',
   PREPARE: 'prepare_msg',
   PROMISE: 'promise_msg',
   ACCEPT_RQ: 'accept_request_msg',
@@ -278,7 +279,7 @@ var handleMessage = function(model, server, message) {
 
 var handleMessageProposer = function(model, server, message) {
   // Accept phase.
-  if (message.type == 'ClientRequest'){
+  if (message.type == MESSAGE_TYPE.CLIENT_RQ){
     server.shouldSendPrepare = true;
   }
   if (server.waitingOnPromise) {
