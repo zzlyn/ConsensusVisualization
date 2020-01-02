@@ -27,6 +27,47 @@ util.circleCoord = function(frac, cx, cy, r) {
   };
 };
 
+util.verticalCoord = function(type,num,xGap,yGap,cx,cy,NUM_P,NUM_A,NUM_L){
+  var offset;
+  if(type == 'client'){
+    offset = yGap/2;
+    return{
+      x: cx - 1.5*xGap,
+      y: cy - (1-1)*yGap/2 + num*yGap - offset,
+    }
+  } else if(type == 'proposer'){
+    if(NUM_P%2 == 0){
+      offset = 0;
+    } else{
+      offset = yGap/2;
+    }
+    return{
+      x: cx - 0.5*xGap,
+      y: cy - (NUM_P-1)*yGap/2 + num*yGap - offset,
+    }
+  } else if(type == 'acceptor'){
+    if(NUM_A%2 == 0){
+      offset = 0;
+    } else{
+      offset = yGap/2;
+    }
+    return{
+      x: cx + 0.5*xGap,
+      y: cy - (NUM_A-1)*yGap/2 + num*yGap - offset,
+    }
+  } else if(type == 'learner'){
+    if(NUM_L%2 == 0){
+      offset = 0;
+    } else{
+      offset = yGap/2;
+    }
+    return{
+      x: cx + 1.5*xGap,
+      y: cy - (NUM_L-1)*yGap/2 + num*yGap - offset,
+    }
+  };
+};
+
 util.countTrue = function(bools) {
   var count = 0;
   bools.forEach(function(b) {
@@ -128,13 +169,13 @@ util.button = function(label) {
 
 //for paxos only for now
 util.groupServers = function(model){
-  var client;
+  var client = [];
   var proposers = [];
   var acceptors = [];
   var learners = [];
   model.servers.forEach(function(server){
     if(server.state == 'client'){
-      client = server;
+      client.push(server);
     } else if(server.state == 'proposer'){
       proposers.push(server);
     } else if(server.state == 'acceptor'){
@@ -150,3 +191,26 @@ util.groupServers = function(model){
   group.push(learners);
   return group;
 };
+
+//select algorithm and activate
+util.select = function(algorithm,algorithmName){
+  protocol = algorithm;
+  activeProtocol = algorithmName;
+  util.activate();
+}
+
+util.serverIdtoNumInGroup = function(Id, model){
+  var num;
+  var ans;
+  var group = util.groupServers(model);
+  group.forEach(function(type){
+    num = 1;
+    type.forEach(function(server){
+      if(server.id == Id){
+        ans = num
+      }
+      num++;
+    })
+  });
+  return ans;
+}

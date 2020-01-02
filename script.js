@@ -14,12 +14,16 @@ var state;
 var record;
 var replay;
 
-var protocol = paxos;
+var protocol;
 
 //temporary var to indicate current active protocol, should be removed and use (protocol) later 
-var activeProtocol = 'paxos';
+var activeProtocol;
 
-$(function () {
+util.activate = function () {
+  //show sliders
+  $('.row').show();
+  //hide select menu
+  $('#algorithm-selection').hide();
 
   var onReplayDone = undefined;
   record = function (name) {
@@ -103,15 +107,18 @@ $(function () {
   var svg = $('svg');
 
   // Ring is only rendered once, so no need to include it in render.update below.
-  render.ring = protocol.render.ring;
-  render.ring(svg);
+  if (activeProtocol == 'raft') {//only show ring if raft is active
+    render.ring = protocol.render.ring;
+    render.ring(svg);
+  }
+
 
   protocol.appendServerInfo(state, svg);
 
   var timeSlider;
 
   render.clock = function () {
-    if (!sliding) {
+    if (!sliding || activeProtocol == 'raft') {
       timeSlider.slider('setAttribute', 'max', state.getMaxTime());
       timeSlider.slider('setValue', state.current.time, false);
     }
@@ -180,12 +187,12 @@ $(function () {
       return;
     var leader = protocol.getLeader();
     if (e.keyCode == ' '.charCodeAt(0) ||
-      e.keyCode == 190 /* dot, emitted by Logitech remote */) {
+      e.keyCode == 190 ) {// dot, emitted by Logitech remote
       $('.modal').modal('hide');
       playback.toggle();
     } else if (e.keyCode == 'C'.charCodeAt(0)) {
       //if paxos send clientRequestMessage
-      if(activeProtocol == 'paxos'){
+      if (activeProtocol == 'paxos') {
         state.fork();
         protocol.sendClientRequest(state.current);
         state.save();
@@ -237,7 +244,7 @@ $(function () {
       state.fork();
       render.update();
       $('.modal').modal('hide');
-    } else if (e.keyCode == 191 && e.shiftKey) { /* question mark */
+    } else if (e.keyCode == 191 && e.shiftKey) { // question mark
       playback.pause();
       $('#modal-help').modal('show');
     }
@@ -300,5 +307,5 @@ $(function () {
 
   state.init();
   render.update();
-});
+};
 
