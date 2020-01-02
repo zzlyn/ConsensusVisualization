@@ -108,6 +108,7 @@ paxos.server = function(id, peers) {
   if (serverAttrs.state === SERVER_STATE.PROPOSER) {
     serverAttrs.shouldSendPrepare = false;
     serverAttrs.grantedPromises = 0;
+    serverAttrs.proposing = false; // need to set this back to false when implementing ACCEPTED message from acceptor
   }
 
   // Acceptor Specific Attributes.
@@ -280,7 +281,9 @@ var handleMessage = function(model, server, message) {
 var handleMessageProposer = function(model, server, message) {
   // Accept phase.
   if (message.type == MESSAGE_TYPE.CLIENT_RQ){
-    server.shouldSendPrepare = true;
+    if(!server.proposing)
+      server.shouldSendPrepare = true;
+      server.proposing = true;
   }
   if (server.waitingOnPromise) {
     if (message.type === MESSAGE_TYPE.PROMISE) {
