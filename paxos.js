@@ -281,9 +281,10 @@ var handleMessage = function(model, server, message) {
 var handleMessageProposer = function(model, server, message) {
   // Accept phase.
   if (message.type == MESSAGE_TYPE.CLIENT_RQ){
-    if(!server.proposing)
+    if(!server.proposing){
       server.shouldSendPrepare = true;
       server.proposing = true;
+    }
   }
   if (server.waitingOnPromise) {
     if (message.type === MESSAGE_TYPE.PROMISE) {
