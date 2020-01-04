@@ -117,7 +117,6 @@ var getLatestCheckpointSequenceNumber = function(server) {
 // of server for the view change execution.
 rules.startNewViewChange = function(model, server) {
   if (server.viewChangeAlarm <= model.time) {
-    console.log("server " + server.id + " timed out");
     // If timed out during a view change, try again with a new attempt.
     if (server.state == 'changing-view') {
       server.viewChangeAttempt += 1;
@@ -160,7 +159,6 @@ var getUniqueNumViewChangeRequestsReceived = function(peerViewChangeRequests) {
       count += 1;
     }
   }, count);
-  //console.log("count is " + count);
   return count;
 }
 
@@ -172,7 +170,7 @@ rules.startViewChangeTimeout = function(model, server) {
          server.viewChangeRequestsReceived[server.view +
                                            server.viewChangeAttempt])
        == ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1)) &&
-      (server.viewChangeAlarm === util.Inf)) { // Make sure the timeout is only set once.
+      (server.viewChangeAlarm === util.Inf)) { // Make sure the timeout is only set when not already running.
     // TODO: this timeout should be 2x the previous amount (increase
     // by factor of 2 for each attempt).
     server.viewChangeAlarm = makeViewChangeAlarm(model.time);
@@ -195,25 +193,13 @@ rules.sendCheckpoint = function(model, server, peer) {
   // TODO
 };
 
-var printed = 0;
-var printed2 = 0;
-
 rules.sendViewChange = function(model, server, peer) {
   var v = server.view + server.viewChangeAttempt;
   if (server.viewChangeRequestsSent[v] == undefined) {
     server.viewChangeRequestsSent[v] = makeArrayOfArrays(pbft.NUM_SERVERS);
   }
-  if (printed < 16) {
-    console.log(server.viewChangeRequestsSent);
-    console.log("attempt send view change from " + server.id + " to " + peer);
-    printed += 1;
-  }
   if (server.state == 'changing-view' &&
       server.viewChangeRequestsSent[v][peer - 1].length == 0) {
-    if (printed2 < 16) {
-      printed2 += 1;
-      console.log("send view change from " + server.id + " to " + peer);
-    }
     var message = {
       from: server.id, // this is `i` described in PBFT paper.
       to: peer,
@@ -238,7 +224,6 @@ rules.sendNewView = function(model, server, peer) {
        (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1)) &&
       (server.id == (server.highestViewChangeReceived % pbft.NUM_SERVERS) + 1) &&
       (server.newViewRequestsSent[server.highestViewChangeReceived][peer - 1].length === 0)) { // Only send the NEW-VIEW message once.
-    console.log("send new view from " + server.id + " to " + peer);
     var message = {
       from: server.id,
       to: peer,
