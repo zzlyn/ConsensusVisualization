@@ -55,20 +55,40 @@ var makeViewChangeAlarm = function(now) {
   return now + (Math.random() + 1) * VIEW_CHANGE_TIMEOUT;
 };
 
+var makeArrayOfArrays = function (length) {
+  return Array.from({length: length}, () => []);
+}
+
 // Public API.
 pbft.server = function(id, peers) {
   return {
+    // id ranges from `0` to `pbft.NUM_SERVERS - 1`.
     id: id,
+    // `pbft.NUM_SERVERS - 1` entries exist in the `peers` array,
+    // holding the id for each peer.
     peers: peers,
+    // state can be 'backup', 'changing-view', or 'primary'.
     state: 'backup',
-    view: 1,
-    n: 1,
+    // 0 is the initial view number v.
+    view: 0,
+    // 0 is the initial sequence number n.
+    n: 0,
     log: [],
+    // timeouts are started only upon receiving a client request.
     viewChangeAlarm: util.Inf,
-    viewChangeRequests: [],
-    key: "k." + id,
-    rpcDue: util.makeMap(peers, 0),
-    sentNewView: util.makeMap(peers, false),
+    // key: "k." + id,
+    // rpcDue: util.makeMap(peers, 0),
+    // A map, with keys corresponding to view number, of arrays
+    // holding arrays of view change requests sent to each server.
+    viewChangeRequestsSent: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
+    // A map, with keys corresponding to view number, of arrays
+    // holding arrays of view changes received from each server.
+    viewChangeRequestsReceived: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
+    // The current attempt for view change, starting at 1 to indicate
+    // first attempt.
+    viewChangeAttempt: 1,
+    highestViewChangeReceived: 0,
+    newViewRequestsSent: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
   };
 };
 
@@ -84,57 +104,83 @@ var isCommitted = function(server, m, v, n) {
 
 }
 
-var getLatestCheckpointProof = function(server) {
-  return 0;
+var updateHighestViewChangeReceived = function(server, v) {
+  server.highestViewChangeReceived = (v > server.highestViewChangeReceived) ?
+    v : server.highestViewChangeReceived;
 }
 
 var getLatestCheckpointSequenceNumber = function(server) {
   return 0;
 }
 
-var getPrePreparedMessageProofs = function(server) {
-  return 0;
-}
-
 // Check if server should start a view change, and if so prepare data members
 // of server for the view change execution.
 rules.startNewViewChange = function(model, server) {
-  if ((server.state == 'backup'
-       || server.state == 'changing-view'
-       || server.state == 'candidate') &&
-      server.viewChangeAlarm <= model.time) {
-    var isNextPrimary = server.id == ((server.view + 1) % pbft.NUM_SERVERS);
+  if (server.viewChangeAlarm <= model.time) {
+    console.log("server " + server.id + " timed out");
+    // If timed out during a view change, try again with a new attempt.
+    if (server.state == 'changing-view') {
+      server.viewChangeAttempt += 1;
+    }
+
     // No timeout, until 2f + 1 view change requests are received
     server.viewChangeAlarm = util.Inf;
     // This is read to indicate that the server is not accepting messages
     // other than VIEW-CHANGE, NEW-VIEW, or CHECKPOINT.
-    server.state = isNextPrimary ? 'candidate' : 'changing-view';
-    // Reset C ("a set of 2f + 1 valid CHECKPOINT messages proving the
-    // correctness of s").
-    server.checkpointProof = getLatestCheckpointProof(server);
-    // Reset S which is a set of sets S_m for each message m that this server
-    // has sent a PRE-PREPARE messgae for.
-    server.prePreparedMessageProofs = getPrePreparedMessageProofs(server);
+    server.state = 'changing-view';
+    // TODO: set C and P here.
 
-    // If server is the next primary, add its own view change request.
-    if (isNextPrimary) {
-      server.viewChangeRequests.push({
-        from: server.id, // this is `i` described in PBFT paper.
-        to: server.id,
-        type: 'VIEW-CHANGE',
-        v: server.view + 1,
-        n: getLatestCheckpointSequenceNumber(server),
-        C: server.checkpointProof,
-        P: server.prePreparedMessageProofs,
-      });
+    // Add its own view change request.
+    var v = server.view + server.viewChangeAttempt;
+    if (server.viewChangeRequestsReceived[v] == undefined) {
+      server.viewChangeRequestsReceived[v] = makeArrayOfArrays(pbft.NUM_SERVERS);
     }
+    server.viewChangeRequestsReceived[v][server.id - 1].push({
+      from: server.id, // this is `i` described in PBFT paper.
+      to: server.id,
+      type: 'VIEW-CHANGE',
+      v: v,
+      n: getLatestCheckpointSequenceNumber(server),
+      C: 0,
+      P: 0,
+    });
+    updateHighestViewChangeReceived(server, v);
   }
 };
 
-rules.sendPrePrepare = function(model, server, peer) {
-  if (server.state == 'primary') {
-
+var getUniqueNumViewChangeRequestsReceived = function(peerViewChangeRequests) {
+  if (peerViewChangeRequests == undefined) {
+    return 0;
   }
+  var count = 0;
+  peerViewChangeRequests.forEach(function(requests) {
+    // TODO: this should be a validity check
+    if (requests.length !== 0 &&
+        requests[0].type == 'VIEW-CHANGE') {
+      count += 1;
+    }
+  }, count);
+  //console.log("count is " + count);
+  return count;
+}
+
+rules.startViewChangeTimeout = function(model, server) {
+  // Restart the timeout upon receiving valid view change requests
+  // from 2f+1 nodes.
+  if ((server.state == 'changing-view') &&
+      (getUniqueNumViewChangeRequestsReceived(
+         server.viewChangeRequestsReceived[server.view +
+                                           server.viewChangeAttempt])
+       == ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1)) &&
+      (server.viewChangeAlarm === util.Inf)) { // Make sure the timeout is only set once.
+    // TODO: this timeout should be 2x the previous amount (increase
+    // by factor of 2 for each attempt).
+    server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+  }
+}
+
+rules.sendPrePrepare = function(model, server, peer) {
+
 };
 
 rules.sendPrepare = function(model, server, peer) {
@@ -149,50 +195,81 @@ rules.sendCheckpoint = function(model, server, peer) {
   // TODO
 };
 
+var printed = 0;
+var printed2 = 0;
+
 rules.sendViewChange = function(model, server, peer) {
+  var v = server.view + server.viewChangeAttempt;
+  if (server.viewChangeRequestsSent[v] == undefined) {
+    server.viewChangeRequestsSent[v] = makeArrayOfArrays(pbft.NUM_SERVERS);
+  }
+  if (printed < 16) {
+    console.log(server.viewChangeRequestsSent);
+    console.log("attempt send view change from " + server.id + " to " + peer);
+    printed += 1;
+  }
   if (server.state == 'changing-view' &&
-      server.rpcDue[peer] <= model.time) {
-    server.rpcDue[peer] = model.time + RPC_TIMEOUT;
-    sendRequest(model, {
+      server.viewChangeRequestsSent[v][peer - 1].length == 0) {
+    if (printed2 < 16) {
+      printed2 += 1;
+      console.log("send view change from " + server.id + " to " + peer);
+    }
+    var message = {
       from: server.id, // this is `i` described in PBFT paper.
       to: peer,
       type: 'VIEW-CHANGE',
-      v: server.view + 1,
+      v: v,
       n: getLatestCheckpointSequenceNumber(server),
       C: server.checkpointProof,
       P: server.prePreparedMessageProofs,
-    });
+    };
+    server.viewChangeRequestsSent[v][peer - 1].push(message);
+    sendRequest(model, message);
   }
 };
 
 rules.sendNewView = function(model, server, peer) {
-  // Need to check rpcDue here?
-  if ((server.state == 'candidate' &&
-       (server.viewChangeRequests.length ==
-        (2 * NUM_TOLERATED_BYZANTINE_FAULTS)))
-      || ((server.state == 'primary') &&
-          !server.sentNewView[peer])) { // Only send the NEW-VIEW message once.
-    server.sentNewView[peer] = true;
-    sendRequest(model, {
+  if (server.newViewRequestsSent[server.highestViewChangeReceived] == undefined) {
+    server.newViewRequestsSent[server.highestViewChangeReceived] = makeArrayOfArrays(pbft.NUM_SERVERS);
+  }
+  if ((server.state !== 'crashed') &&
+      (getUniqueNumViewChangeRequestsReceived(
+         server.viewChangeRequestsReceived[server.highestViewChangeReceived]) ==
+       (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1)) &&
+      (server.id == (server.highestViewChangeReceived % pbft.NUM_SERVERS) + 1) &&
+      (server.newViewRequestsSent[server.highestViewChangeReceived][peer - 1].length === 0)) { // Only send the NEW-VIEW message once.
+    console.log("send new view from " + server.id + " to " + peer);
+    var message = {
       from: server.id,
       to: peer,
       type: 'NEW-VIEW',
-      v: (server.state == 'primary') ? server.view : (server.view + 1),
+      v: server.highestViewChangeReceived,
       V: server.viewChangeRequests
-    });
+    };
+    sendRequest(model, message);
+    server.view = server.highestViewChangeReceived;
+    // We reset the new primary temporarily to a 'backup'; it will be picked
+    // up later by becomePrimary which will set its state to 'primary'.
+    server.state = 'backup';
+    server.viewChangeAlarm = util.Inf;
+    server.newViewRequestsSent[server.highestViewChangeReceived][peer - 1].push(message);
   }
 };
 
 rules.becomePrimary = function(model, server) {
-  // TODO: check that the to-be primary also has the highest view.
-  if (server.state == 'candidate' &&
-      (server.viewChangeRequests.length ==
-       (2 * NUM_TOLERATED_BYZANTINE_FAULTS))) {
+  var count = 0;
+  for (var i = 0; i < model.servers.length; i++) {
+    if ((model.servers[i].view % pbft.NUM_SERVERS) + 1 == server.id) {
+      count += 1;
+    }
+  }
+  if (count >= (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1) &&
+      server.state == 'backup') { // Make sure the server is not 'changing-view'.
     var oldPrimary = pbft.getLeader();
-    if (oldPrimary !== null)
+    if (oldPrimary !== null) {
       oldPrimary.state = 'backup';
+    }
     server.state = 'primary';
-    server.view += 1;
   }
 };
 
@@ -213,20 +290,18 @@ var handleCheckpointRequest = function(model, server, request) {
 };
 
 var handleViewChangeRequest = function(model, server, request) {
-  if ((server.state == 'backup' ||
-       server.state == 'candidate' ||
-       server.state == 'changing-view') &&
-      (server.id == (request.v % pbft.NUM_SERVERS))) {
-    // This server is the primary of the requested view.
-    server.state = 'candidate';
-    server.viewChangeRequests.push(request);
+  if (server.viewChangeRequestsReceived[request.v] == undefined) {
+    server.viewChangeRequestsReceived[request.v] = makeArrayOfArrays(pbft.NUM_SERVERS);
   }
+  server.viewChangeRequestsReceived[request.v][request.from - 1].push(request);
+  updateHighestViewChangeReceived(server, request.v);
 };
 
 var handleNewViewRequest = function(model, server, request) {
   server.viewChangeAlarm = util.Inf;
   server.view = request.v;
   server.state = 'backup';
+  server.viewChangeAttempt = 1;
 };
 
 var handleMessage = function(model, server, message) {
@@ -246,8 +321,8 @@ var handleMessage = function(model, server, message) {
 pbft.update = function(model) {
   model.servers.forEach(function(server) {
     rules.startNewViewChange(model, server);
+    rules.startViewChangeTimeout(model, server);
     rules.becomePrimary(model, server);
-    // rules.advanceCommitIndex(model, server);
     server.peers.forEach(function(peer) {
       rules.sendPrePrepare(model, server, peer);
       rules.sendPrepare(model, server, peer);
@@ -519,7 +594,7 @@ var serverModal = function(model, server) {
       // .append('<td>' + server.nextIndex[peer] + '</td>')
       // .append('<td>' + server.matchIndex[peer] + '</td>')
       // .append('<td>' + server.voteGranted[peer] + '</td>')
-      .append('<td>' + util.relTime(server.rpcDue[peer], model.time) + '</td>')
+      // .append('<td>' + util.relTime(server.rpcDue[peer], model.time) + '</td>')
       // .append('<td>' + util.relTime(server.heartbeatDue[peer], model.time) + '</td>')
     );
   });
