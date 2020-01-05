@@ -117,17 +117,6 @@ paxos.server = function(id, peers) {
   return serverAttrs;
 };
 
-// message object. (could be proposal message/ accepter ACKs to proposals/learners)
-paxos.message = function(propNum, servID) {
-  return {
-    proposalNum: propNum,
-    proposalID: servID + proposalNum, //make each message unique to that server by including server ID
-    proposalVal: 'default', //pass values as strings
-    messageState: 'default', //could be one of the MESSAGE_STATEs.
-
-  };
-};
-
 var MIN_RPC_LATENCY = 10000;
 var MAX_RPC_LATENCY = 15000;
 var BATCH_SIZE = 1;
