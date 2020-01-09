@@ -34,8 +34,8 @@ const MESSAGE_TYPE = {
   CLIENT_RQ: 'ClientRequest',
   PREPARE: 'prepare_msg',
   PROMISE: 'promise_msg',
-  ACCEPT_RQ: 'accept_request_msg',
-  ACCEPTED: 'accept_msg',
+  ACCEPT: 'accept_msg',
+  ACCEPTED: 'accepted_msg',
 }
 
 // Translate ID in range [1, NUM_SERVERS] to server state. Returns
@@ -108,6 +108,7 @@ paxos.server = function(id, peers) {
   if (serverAttrs.state === SERVER_STATE.PROPOSER) {
     serverAttrs.shouldSendPrepare = true; // Bug: Client doesn't send anything now.
     serverAttrs.grantedPromises = 0;
+    serverAttrs.sendAcceptedBroadcast = 0;
     serverAttrs.proposing = false; // need to set this back to false when implementing ACCEPTED message from acceptor
   }
 
@@ -293,6 +294,14 @@ var handleMessageProposer = function(model, server, message) {
       server.grantedPromises += 1;
     }
   }
+
+  // SIMILAR STUFF BELOW would be in handleMessageLearner
+  if (message.type === MESSAGE_TYPE.ACCEPTED) {
+    if (message.previouslyAcceptedTerm > server.previousTerm ) {
+      server.previousTerm = message.previouslyAcceptedTerm;
+      server.proposeValue = message.previouslyAcceptedValue;
+    }
+  }
 }
 
 var handleProposerUpdate = function(model, server) {
@@ -328,10 +337,11 @@ var handleProposerUpdate = function(model, server) {
         if (serverIdToState(peer) !== SERVER_STATE.ACCEPTOR) {
           return;
         }
+
         sendRequest(model, {
           from: server.id,
           to: peer,
-          type: 'accept',
+          type: MESSAGE_TYPE.ACCEPT,
           term: server.term,
           value: server.proposeValue,
         });
@@ -345,7 +355,7 @@ var handleProposerUpdate = function(model, server) {
 /* Start Paxos Acceptor Implementation */
 
 var handlePrepareMessage = function(model, server, proposalMsg) {
-  // send message from proposer to acceptor
+  // handes the PREPARE message that this (acceptor) server received from proposer
   // term check
   if (proposalMsg.term < server.previousTerm ) {
     return;
@@ -360,24 +370,65 @@ var handlePrepareMessage = function(model, server, proposalMsg) {
   });
 }
 
+var handleAcceptMessage = function(model, server, acceptMsg) {
+  // handes the ACCEPT message that this (acceptor) server received from proposer
+  // term check
+  if (acceptMsg.term < server.previousTerm ) {
+    return;
+  }
+
+  // else we have accepted the value
+
+  // update the term
+  server.previousTerm = acceptMsg.term;
+
+  // DOUBT: this server (acceptor) has to store the accepted term and accepted value. What server attributes are those?
+  server.previouslyAcceptedTerm = acceptMsg.term;
+  server.previouslyAcceptedValue = acceptMsg.value;
+
+  // send reply (accept reply = broadcast to all proposers and learners)
+  // look into the server's peers and ignore if they are acceptors
+  server.peers.forEach(function(peer) {
+    if (serverIdToState(peer) == SERVER_STATE.ACCEPTOR || serverIdToState(peer) == SERVER_STATE.CLIENT) {
+      return;
+    }
+
+    // TODO: Optimize this by sending a reply back to the original proposer.
+    if (serverIdToState(peer) == SERVER_STATE.PROPOSER) {
+      return;
+    }
+
+
+
+    // cant use sendReply because we have to send to learner also, thus sendMessage()
+    sendMessage(model, {
+      from: server.id,
+      to: peer,
+      type: MESSAGE_TYPE.ACCEPTED,
+      term: server.term,
+      value: server.proposeValue,
+
+      // not sure about these last two attributes.
+      // This sendMessage will call handleMessage and if you trace the steps it should call:
+      // 1. handleMessageProposer
+      // 2. handleMessageLearner
+      // in both those handle messages we set previous term and proposal value.
+      // For that, we send the following two variables like this: Is it correct?
+      previouslyAcceptedTerm: acceptMsg.term,
+      previouslyAcceptedValue: acceptMsg.value,
+    });
+  });
+}
+
 var handleMessageAcceptor = function(model, server, message) {
   // proposal message from proposer
   if (message.type == MESSAGE_TYPE.PREPARE) {
     handlePrepareMessage(model, server, message);
   }
-  /*
-  // proposal acknowledgement message from acceptor
-  else if (message.messageState == MESSAGE_STATE.PROMISE) {
-    handlePromiseMessage(model, server, message);
-  }
-  // proposal message to acceptors to accept the value
-  else if (message.messageState == MESSAGE_STATE.ACCEPT_RQ) {
-    handleAcceptRequestMessage(model, server, message);
-  }
-  // else an 'ACCEPT', where acceptor sends message to proposers and learners
-  else {
+
+  if (message.type == MESSAGE_TYPE.ACCEPT) {
     handleAcceptMessage(model, server, message);
-  }*/
+  }
 }
 
 /* End acceptor implementation. */
@@ -392,7 +443,7 @@ paxos.update = function(model) {
         break;
 
       case SERVER_STATE.ACCEPTOR:
-        // handleAcceptorUpdate(model, server);
+        //handleAcceptorUpdate(model, server);
         break;
 
       case SERVER_STATE.LEARNER:
