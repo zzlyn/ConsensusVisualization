@@ -177,10 +177,10 @@ svg #pause.resumed {
 
 @media (min-width: 768px) {
   #modal-details .modal-body .dl-horizontal dt {
-    width: 100px;
+    width: 140px;
   }
   .dl-horizontal dd {
-    margin-left: 120px;
+    margin-left: 160px;
   }
 }
 

@@ -110,6 +110,7 @@ paxos.server = function(id, peers) {
     serverAttrs.grantedPromises = 0;
     serverAttrs.sendAcceptedBroadcast = 0;
     serverAttrs.proposing = false; // need to set this back to false when implementing ACCEPTED message from acceptor
+    serverAttrs.proposeValue = Math.random().toString(36).substring(7);  // Initiate empty proposers with random value to propose.
   }
 
   // Acceptor Specific Attributes.
@@ -398,8 +399,6 @@ var handleAcceptMessage = function(model, server, acceptMsg) {
       return;
     }
 
-
-
     // cant use sendReply because we have to send to learner also, thus sendMessage()
     sendMessage(model, {
       from: server.id,
@@ -414,8 +413,8 @@ var handleAcceptMessage = function(model, server, acceptMsg) {
       // 2. handleMessageLearner
       // in both those handle messages we set previous term and proposal value.
       // For that, we send the following two variables like this: Is it correct?
-      previouslyAcceptedTerm: acceptMsg.term,
-      previouslyAcceptedValue: acceptMsg.value,
+      previouslyAcceptedTerm: server.previouslyAcceptedTerm,
+      previouslyAcceptedValue: server.previouslyAcceptedValue,
     });
   });
 }
@@ -637,6 +636,45 @@ paxos.getLeader = function() {
   return leader;
 };
 
+var fillClientModalBody = function(m, server, li) {
+  $('.modal-body', m)
+    .empty()
+    .append($('<dl class="dl-horizontal"></dl>')
+      .append(li('state', server.state))
+    );
+}
+
+var fillProposerModalBody = function(m, server, li) {
+  $('.modal-body', m)
+    .empty()
+    .append($('<dl class="dl-horizontal"></dl>')
+      .append(li('state', server.state))
+      .append(li('current term', server.term))
+      .append(li('proposing value', server.proposeValue))
+    );
+}
+
+var fillAcceptorModalBody = function(m, server, li) {
+  $('.modal-body', m)
+    .empty()
+    .append($('<dl class="dl-horizontal"></dl>')
+      .append(li('state', server.state))
+      .append(li('current term', server.term))
+      .append(li('promised term', server.previousTerm))
+      .append(li('accpeted value', server.previouslyAcceptedValue))
+    );
+}
+
+var fillLearnerModalBody = function(m, server, li) {
+  $('.modal-body', m)
+    .empty()
+    .append($('<dl class="dl-horizontal"></dl>')
+      .append(li('state', server.state))
+      .append(li('current term', server.term))
+      // .append(li('decided value', server.previousTerm))
+    );
+}
+
 var serverModal = function(model, server) {
   var m = $('#modal-details');
   $('.modal-title', m).text('Server ' + server.id);
@@ -660,15 +698,21 @@ var serverModal = function(model, server) {
       .append('<td>' + util.relTime(server.rpcDue[peer], model.time) + '</td>')
     );
   });
-  $('.modal-body', m)
-    .empty()
-    .append($('<dl class="dl-horizontal"></dl>')
-      .append(li('state', server.state))
-      .append(li('currentTerm', server.term))
-      .append(li('commitIndex', server.commitIndex))
-      .append($('<dt>peers</dt>'))
-      .append($('<dd></dd>').append(peerTable))
-    );
+  if (server.state === SERVER_STATE.CLIENT) {
+    fillClientModalBody(m, server, li);
+  }
+  // Append Proposer specific states to server model menu.
+  if (server.state === SERVER_STATE.PROPOSER) {
+    fillProposerModalBody(m, server, li);
+  }
+  // Append Acceptor specific states.
+  if (server.state === SERVER_STATE.ACCEPTOR) {
+    fillAcceptorModalBody(m, server, li);
+  }
+  // Append Learner specific states.
+  if (server.state === SERVER_STATE.LEARNER) {
+    fillLearnerModalBody(m, server, li);
+  }
   var footer = $('.modal-footer', m);
   footer.empty();
   serverActions.forEach(function(action) {
@@ -684,6 +728,19 @@ var serverModal = function(model, server) {
   m.modal();
 };
 
+var fillPromiseMessageFields = function(message, fields, li) {
+  // No specific states for promise message yet.
+}
+
+var fillAcceptMessageFields = function(message, fields, li) {
+  fields.append(li('propose value', message.value));
+}
+
+var fillAcceptedMessageFields = function(message, fields, li) {
+  fields.append(li('accpeted term', message.previouslyAcceptedTerm));
+  fields.append(li('accpeted value', message.previouslyAcceptedValue));
+}
+
 var messageModal = function(model, message) {
   var m = $('#modal-details');
   $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
@@ -697,19 +754,23 @@ var messageModal = function(model, message) {
       .append(li('sent', util.relTime(message.sendTime, model.time)))
       .append(li('deliver', util.relTime(message.recvTime, model.time)))
       .append(li('term', message.term));
-  if (message.type == 'AppendEntries') {
-    if (message.direction == 'request') {
-      var entries = '[' + message.entries.map(function(e) {
-            return e.term;
-      }).join(' ') + ']';
-      fields.append(li('prevIndex', message.prevIndex));
-      fields.append(li('prevTerm', message.prevTerm));
-      fields.append(li('entries', entries));
-      fields.append(li('commitIndex', message.commitIndex));
-    } else {
-      fields.append(li('success', message.success));
-      fields.append(li('matchIndex', message.matchIndex));
-    }
+  switch(message.type) {
+    case MESSAGE_TYPE.CLIENT_RQ:
+      // TODO: Add this once CLIENT_RQ has been populated with meaningful states.
+      // fillClientRequestFields(message, fields, li);
+      break;
+
+    case MESSAGE_TYPE.PROMISE:
+      fillPromiseMessageFields(message, fields, li);
+      break;
+
+    case MESSAGE_TYPE.ACCEPT:
+      fillAcceptMessageFields(message, fields, li);
+      break;
+
+    case MESSAGE_TYPE.ACCEPTED:
+      fillAcceptedMessageFields(message, fields, li);
+      break;
   }
   $('.modal-body', m)
     .empty()
