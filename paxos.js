@@ -960,18 +960,18 @@ paxos.render.messages = function(messagesSame, svg) {
                         (message.recvTime - message.sendTime),state.current);
     $('#message-' + i + ' circle', messagesGroup)
       .attr(s);
-    /* Refer to this later to differentiate messages
-    if (message.direction == 'reply') {
+    /*if (message.direction == 'reply') {
       var dlist = [];
       dlist.push('M', s.cx - s.r, comma, s.cy,
                  'L', s.cx + s.r, comma, s.cy);
-      if (message.type == 'AppendEntries' && message.success) {
+      if ((message.type == MESSAGE_TYPE.PROMISE) ||
+          (message.type == MESSAGE_TYPE.ACCEPTED)) {
          dlist.push('M', s.cx, comma, s.cy - s.r,
                     'L', s.cx, comma, s.cy + s.r);
       }
       $('#message-' + i + ' path.message-success', messagesGroup)
         .attr('d', dlist.join(' '));
-    } */
+    }*/
     var dir = $('#message-' + i + ' path.message-direction', messagesGroup);
     if (playback.isPaused()) {
       dir.attr('style', 'marker-end:url(#TriangleOutS-' + message.type + ')')

@@ -98,6 +98,38 @@ svg .message.AppendEntries {
   stroke: #fc8d62;
 }
 
+/* Start: PAXOS MESSAGES SVG COLORS */
+svg .message.ClientRequest {
+  fill:   #000000; /*black*/
+  stroke: #000000;
+}
+
+svg .message.prepare_msg {
+  fill:   #008000; /*green*/
+  stroke: #008000;
+}
+
+svg .message.promise_msg {
+  fill:   #0000FF; /*blue*/
+  stroke: #0000FF;
+}
+
+svg .message.accept_msg {
+  fill:   #FF0000; /*red*/
+  stroke: #FF0000;
+}
+
+svg .message.accepted_msg {
+  fill:   #FFA500; /*orange*/
+  stroke: #FFA500;
+}
+
+svg .message.LearnerReply {
+  fill:   #808080; /*grey*/
+  stroke: #808080;
+}
+/* End: PAXOS MESSAGES SVG COLORS */
+
 svg .message.request circle {
 }
 
