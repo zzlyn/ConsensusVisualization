@@ -106,7 +106,7 @@ paxos.server = function(id, peers) {
 
   // Proposer Specific Attributes.
   if (serverAttrs.state === SERVER_STATE.PROPOSER) {
-    serverAttrs.shouldSendPrepare = true; // Bug: Client doesn't send anything now.
+    serverAttrs.shouldSendPrepare = false;
     serverAttrs.grantedPromises = 0;
     serverAttrs.sendAcceptedBroadcast = 0;
     serverAttrs.proposing = false; // need to set this back to false when implementing ACCEPTED message from acceptor
