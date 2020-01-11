@@ -394,8 +394,9 @@ var handleAcceptMessage = function(model, server, acceptMsg) {
       return;
     }
 
-    // TODO: Optimize this by sending a reply back to the original proposer.
-    if (serverIdToState(peer) == SERVER_STATE.PROPOSER) {
+    // Skip reply if peer proposer is not sender of accept request.
+    if (serverIdToState(peer) == SERVER_STATE.PROPOSER
+        && peer !== acceptMsg.from) {
       return;
     }
 
