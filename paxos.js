@@ -38,6 +38,14 @@ const MESSAGE_TYPE = {
   ACCEPTED: 'accepted_msg',
 }
 
+// Proposer specific phases.
+const PROPOSER_PHASE = {
+  INACTIVE: 'inactive',
+  SEND_PREPARE: 'send_prepare',
+  WAIT_PROMISE: 'wait_promise',
+  WAIT_ACCEPTED: 'wait_accepted',
+}
+
 // Translate ID in range [1, NUM_SERVERS] to server state. Returns
 // UNKNOWN if ID is out of bound.
 var serverIdToState = function(id) {
@@ -106,10 +114,11 @@ paxos.server = function(id, peers) {
 
   // Proposer Specific Attributes.
   if (serverAttrs.state === SERVER_STATE.PROPOSER) {
-    serverAttrs.shouldSendPrepare = false;
+    serverAttrs.phase = PROPOSER_PHASE.INACTIVE;
+    // For WAIT_PROMISE phase.
     serverAttrs.grantedPromises = 0;
-    serverAttrs.sendAcceptedBroadcast = 0;
-    serverAttrs.proposing = false; // need to set this back to false when implementing ACCEPTED message from acceptor
+    // For WAIT_ACCEPTED phase.
+    serverAttrs.grantedAccepts = 0;
     serverAttrs.proposeValue = Math.random().toString(36).substring(7);  // Initiate empty proposers with random value to propose.
   }
 
@@ -270,14 +279,15 @@ var handleMessage = function(model, server, message) {
 /* Start Paxos Proposer Implementation. */
 
 var handleMessageProposer = function(model, server, message) {
-  // Accept phase.
+  // Initiate proposer to be active.
   if (message.type == MESSAGE_TYPE.CLIENT_RQ){
-    if(!server.proposing){
-      server.shouldSendPrepare = true;
-      server.proposing = true;
+    if(server.phase === PROPOSER_PHASE.INACTIVE){
+      server.phase = PROPOSER_PHASE.SEND_PREPARE;
     }
   }
-  if (server.waitingOnPromise) {
+
+  // Prepare sent, waiting on promise.
+  if (server.phase === PROPOSER_PHASE.WAIT_PROMISE) {
     if (message.type === MESSAGE_TYPE.PROMISE) {
       // Acceptor has previously accepted another value with a smaller
       // term number. This proposer will try to propose for that value
@@ -288,26 +298,39 @@ var handleMessageProposer = function(model, server, message) {
       // 
       // For Acceptors, previouslyAcceptedTerm and previouslyAcceptedValue
       // should be set/unset together.
-      if (message.previouslyAcceptedTerm > server.previousTerm ) {
-        server.previousTerm = message.previouslyAcceptedTerm;
+      if (message.previouslyAcceptedTerm > server.term ) {
+        server.term = message.previouslyAcceptedTerm;
         server.proposeValue = message.previouslyAcceptedValue;
       }
       server.grantedPromises += 1;
     }
   }
 
-  // SIMILAR STUFF BELOW would be in handleMessageLearner
-  if (message.type === MESSAGE_TYPE.ACCEPTED) {
-    if (message.previouslyAcceptedTerm > server.previousTerm ) {
-      server.previousTerm = message.previouslyAcceptedTerm;
-      server.proposeValue = message.previouslyAcceptedValue;
+  // Accept requests sent, waiting on replies.
+  if (server.phase === PROPOSER_PHASE.WAIT_ACCEPTED) {
+    if (message.type === MESSAGE_TYPE.ACCEPTED) {
+      // According to phase 2b on https://en.wikipedia.org/wiki/Paxos_(computer_science), 
+      // ACCEPTED replies will only be sent if acceptor has truly accepted the request.
+      // 
+      // To elaborate a bit further, if acceptor has previously promised another value with
+      // term greater than this proposer's term, it would simply ignore the accept request.
+      // Therefore, we can assume that upon receiving an ACCEPTED message, the proposer
+      // won't be participating in the algorithm further. We will increment an internal
+      // counter that is used only to reset this proposer.
+      server.grantedAccepts += 1;
     }
   }
 }
 
+var resetProposer = function(server) {
+  server.phase = PROPOSER_PHASE.INACTIVE;
+  server.grantedPromises = 0;
+  server.grantedAccepts = 0;
+}
+
 var handleProposerUpdate = function(model, server) {
   // Prepare phase.
-  if (server.shouldSendPrepare) {
+  if (server.phase === PROPOSER_PHASE.SEND_PREPARE) {
     server.peers.forEach(function(peer) {
       if (serverIdToState(peer) !== SERVER_STATE.ACCEPTOR) {
         return; // Only propose to acceptors.
@@ -319,21 +342,22 @@ var handleProposerUpdate = function(model, server) {
         term: server.term,
       });
     });
-    server.shouldSendPrepare = false; // End the prepare phase.
-    server.waitingOnPromise = true; // Start the next phase.
+    server.phase = PROPOSER_PHASE.WAIT_PROMISE;  // Enter next phase.
     // Used to compare & choose the largest accepted value to
     // propose instead in the next phase.
     server.previousTerm = -1; 
     return;
   }
 
-  // Accept phase.
-  if (server.waitingOnPromise) {
+  // Prepare -> accept phase transition check.
+  if (server.phase === PROPOSER_PHASE.WAIT_PROMISE) {
     if (server.grantedPromises > paxos.NUM_ACCEPTORS / 2) {
-      // Server has quorum. End acccept-waiting phase.
-      server.waitingOnPromise = false;
-
-      // Sending Accept requests now.
+      // Server has quorum. First fire off the accept requests, then enter
+      // next phase to wait for accepted responses.
+      //
+      // The order of operation does not really matter here due to the 
+      // fact that this method is executed each frame and race condition
+      // becomes impossible.
       server.peers.forEach(function(peer) {
         if (serverIdToState(peer) !== SERVER_STATE.ACCEPTOR) {
           return;
@@ -347,6 +371,14 @@ var handleProposerUpdate = function(model, server) {
           value: server.proposeValue,
         });
       });
+      server.phase = PROPOSER_PHASE.WAIT_ACCEPTED;
+    }
+  }
+
+  // Accpet phase. Waiting on quorum of accepted replies for reset.
+  if (server.phase === PROPOSER_PHASE.WAIT_ACCEPTED) {
+    if (server.grantedAccepts > paxos.NUM_ACCEPTORS / 2) {
+      resetProposer(server);
     }
   }
 }
