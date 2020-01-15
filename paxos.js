@@ -189,7 +189,9 @@ paxos.sendClientRequest = function(model, server, proposer) {
   if (proposingValue == null) return;
 
   // Ready to suggest next term to be latest term + 1.
-  paxos.latestTerm = parseInt(proposingTerm, 10) + 1;  
+  if (parseInt(proposingTerm, 10) > paxos.latestTerm) {
+    paxos.latestTerm = parseInt(proposingTerm, 10) + 1;
+  }
   
   var group = util.groupServers(model);
   var clientId = group[0][0].id;
