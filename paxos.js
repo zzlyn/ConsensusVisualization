@@ -337,7 +337,7 @@ var handleMessageProposer = function(model, server, message) {
       // term number. This proposer will try to propose for that value
       // instead of its original value.
       //
-      // The initial server.promisedTerm is set to '-1' so this replacement
+      // The initial acceptor.promisedTerm is set to '-1' so this replacement
       // is guaranteed to happen if there was a legit accepted value.
       // 
       // For Acceptors, previouslyAcceptedTerm and previouslyAcceptedValue
@@ -389,7 +389,7 @@ var handleProposerUpdate = function(model, server) {
     server.phase = PROPOSER_PHASE.WAIT_PROMISE;  // Enter next phase.
     // Used to compare & choose the largest accepted value to
     // propose instead in the next phase.
-    server.promisedTerm = -1; 
+    server.largestAcceptedTerm = -1; 
     return;
   }
 
