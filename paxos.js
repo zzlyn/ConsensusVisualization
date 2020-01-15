@@ -14,7 +14,7 @@ var paxos = {};
 // Configure these variables to define the number of proposers, accepters 
 // and learners in the consensus.
 paxos.NUM_CLIENTS = 1;
-paxos.NUM_PROPOSERS = 1;
+paxos.NUM_PROPOSERS = 2;
 paxos.NUM_ACCEPTORS = 3;
 paxos.NUM_LEARNERS = 1;
 
@@ -179,11 +179,13 @@ paxos.sendClientRequest = function(model, server, proposer) {
   // Prompt proposing term.
   let proposingTerm = window.prompt('Please give a term number:', paxos.latestTerm);
   if (proposingTerm == null) return;
-  paxos.latestTerm = parseInt(proposingTerm, 10) + 1;  // Ready to suggest next term to be latest term + 1.
   
   // Prompt proposing value.
   let proposingValue = window.prompt('Please give a proposing value:', 'abc');
   if (proposingValue == null) return;
+
+  // Ready to suggest next term to be latest term + 1.
+  paxos.latestTerm = parseInt(proposingTerm, 10) + 1;  
   
   var group = util.groupServers(model);
   var clientId = group[0][0].id;
