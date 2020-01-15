@@ -142,6 +142,7 @@ paxos.server = function(id, peers) {
   // Learner Specific Attributes.
   if (serverAttrs.state === SERVER_STATE.LEARNER) {
     serverAttrs.acceptedLog = {};
+    serverAttrs.value = null;
   }
 
   return serverAttrs;
@@ -441,7 +442,7 @@ var handlePrepareMessage = function(model, server, proposalMsg) {
   // Promise to ignore other requests with term number smaller than this.
   server.promisedTerm = proposalMsg.term;
 
-  let messageSpec = { type: MESSAGE_TYPE.PROMISE };
+  let messageSpec = { type: MESSAGE_TYPE.PROMISE, term: server.promisedTerm };
   // Fill in these if acceptor has accepted something before.
   if (server.hasAccepted) {
     messageSpec.previouslyAcceptedTerm = server.acceptedTerm;
@@ -505,19 +506,25 @@ var handleMessageAcceptor = function(model, server, message) {
 /* End acceptor implementation. */
 
 var handleMessageLearner = function(model, server, message) {
-  var key = [message.acceptedProposalNum,message.acceptedProposalVal]
+  // Already decided one value in this round of Paxos.
+  if (server.value !== null) {
+    return;
+  }
   if (message.type == MESSAGE_TYPE.ACCEPTED) {
+    var key = [message.term, message.value];
     if(server.acceptedLog[key] == undefined){
       server.acceptedLog[key] = 1;
     } else {
       server.acceptedLog[key] += 1; 
     }
     if(server.acceptedLog[key] > paxos.NUM_ACCEPTORS /2){
+      server.value = key;
       //majority of accepted message received.
       sendMessage(model, {
         from: message.to,
         to: util.groupServers(state.current)[0][0].id,
-        type: MESSAGE_TYPE.CLIENT_REPLY
+        type: MESSAGE_TYPE.CLIENT_REPLY,
+        value: server.value,
       });
       server.acceptedLog[key] = undefined;
     }
@@ -753,8 +760,7 @@ var fillLearnerModalBody = function(m, server, li) {
     .empty()
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
-      .append(li('current term', server.term))
-      // .append(li('decided value', server.promisedTerm))
+      .append(li('term, value', server.value))
     );
 }
 
@@ -811,17 +817,31 @@ var serverModal = function(model, server) {
   m.modal();
 };
 
+var fillClientRequestFields = function(message, fields, li) {
+  fields.append(li('propose term', message.term));
+  fields.append(li('propose value', message.value));
+}
+
 var fillPromiseMessageFields = function(message, fields, li) {
-  // No specific states for promise message yet.
+  if (message.previouslyAcceptedTerm != null) {
+    fields.append(li('previous term', message.previouslyAcceptedTerm));
+    fields.append(li('previous value', message.previouslyAcceptedValue));
+  }
 }
 
 var fillAcceptMessageFields = function(message, fields, li) {
+  fields.append(li('propose term', message.term));
   fields.append(li('propose value', message.value));
 }
 
 var fillAcceptedMessageFields = function(message, fields, li) {
-  fields.append(li('accpeted term', message.previouslyAcceptedTerm));
-  fields.append(li('accpeted value', message.previouslyAcceptedValue));
+  fields.append(li('accpeted term', message.term));
+  fields.append(li('accpeted value', message.value));
+}
+
+var fillClientReplyFields = function(message, fields, li) {
+  fields.append(li('decided value', message.value[1]));
+  fields.append(li('from term', message.value[0]));
 }
 
 var messageModal = function(model, message) {
@@ -835,12 +855,10 @@ var messageModal = function(model, message) {
       .append(li('from', 'S' + message.from))
       .append(li('to', 'S' + message.to))
       .append(li('sent', util.relTime(message.sendTime, model.time)))
-      .append(li('deliver', util.relTime(message.recvTime, model.time)))
-      .append(li('term', message.term));
+      .append(li('deliver', util.relTime(message.recvTime, model.time)));
   switch(message.type) {
     case MESSAGE_TYPE.CLIENT_RQ:
-      // TODO: Add this once CLIENT_RQ has been populated with meaningful states.
-      // fillClientRequestFields(message, fields, li);
+      fillClientRequestFields(message, fields, li);
       break;
 
     case MESSAGE_TYPE.PROMISE:
@@ -853,6 +871,10 @@ var messageModal = function(model, message) {
 
     case MESSAGE_TYPE.ACCEPTED:
       fillAcceptedMessageFields(message, fields, li);
+      break;
+
+    case MESSAGE_TYPE.CLIENT_REPLY:
+      fillClientReplyFields(message, fields, li);
       break;
   }
   $('.modal-body', m)
