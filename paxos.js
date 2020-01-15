@@ -442,7 +442,7 @@ var handlePrepareMessage = function(model, server, proposalMsg) {
   // Promise to ignore other requests with term number smaller than this.
   server.promisedTerm = proposalMsg.term;
 
-  let messageSpec = { type: MESSAGE_TYPE.PROMISE };
+  let messageSpec = { type: MESSAGE_TYPE.PROMISE, term: server.promisedTerm };
   // Fill in these if acceptor has accepted something before.
   if (server.hasAccepted) {
     messageSpec.previouslyAcceptedTerm = server.acceptedTerm;
@@ -818,20 +818,25 @@ var serverModal = function(model, server) {
 };
 
 var fillClientRequestFields = function(message, fields, li) {
+  fields.append(li('propose term', message.term));
   fields.append(li('propose value', message.value));
 }
 
 var fillPromiseMessageFields = function(message, fields, li) {
-  // No specific states for promise message yet.
+  if (message.previouslyAcceptedTerm != null) {
+    fields.append(li('previous term', message.previouslyAcceptedTerm));
+    fields.append(li('previous value', message.previouslyAcceptedValue));
+  }
 }
 
 var fillAcceptMessageFields = function(message, fields, li) {
+  fields.append(li('propose term', message.term));
   fields.append(li('propose value', message.value));
 }
 
 var fillAcceptedMessageFields = function(message, fields, li) {
-  fields.append(li('accpeted term', message.previouslyAcceptedTerm));
-  fields.append(li('accpeted value', message.previouslyAcceptedValue));
+  fields.append(li('accpeted term', message.term));
+  fields.append(li('accpeted value', message.value));
 }
 
 var fillClientReplyFields = function(message, fields, li) {
@@ -850,8 +855,7 @@ var messageModal = function(model, message) {
       .append(li('from', 'S' + message.from))
       .append(li('to', 'S' + message.to))
       .append(li('sent', util.relTime(message.sendTime, model.time)))
-      .append(li('deliver', util.relTime(message.recvTime, model.time)))
-      .append(li('term', message.term));
+      .append(li('deliver', util.relTime(message.recvTime, model.time)));
   switch(message.type) {
     case MESSAGE_TYPE.CLIENT_RQ:
       fillClientRequestFields(message, fields, li);
