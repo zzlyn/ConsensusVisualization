@@ -663,15 +663,6 @@ var messageArrowSpec = function(from, to, frac, model) {
   ].join(' ');
 };
 
-var termColors = [
-  '#66c2a5',
-  '#fc8d62',
-  '#8da0cb',
-  '#e78ac3',
-  '#a6d854',
-  '#ffd92f',
-];
-
 var serverActions = [
   ['stop', paxos.stop],
   ['resume', paxos.resume],
@@ -909,6 +900,23 @@ paxos.render.servers = function(serversSame, svg) {
   });
 };
 
+var serverIdToText = function(id) {
+  let state = serverIdToState(id);
+  if (state === SERVER_STATE.CLIENT) {
+    return 'C' + id;
+  }
+  if (state === SERVER_STATE.PROPOSER) {
+    return 'P' + (id - paxos.NUM_CLIENTS);
+  }
+  if (state === SERVER_STATE.ACCEPTOR) {
+    return 'A' + (id - paxos.NUM_CLIENTS - paxos.NUM_PROPOSERS);
+  }
+  if (state === SERVER_STATE.LEARNER) {
+    return 'L' + (id - paxos.NUM_CLIENTS - paxos.NUM_PROPOSERS - paxos.NUM_ACCEPTORS);
+  }
+  return '?';  // Unknown.
+}
+
 // Public API.
 paxos.appendServerInfo = function(state, svg) {
   state.current.servers.forEach(function(server) {
@@ -919,7 +927,7 @@ paxos.appendServerInfo = function(state, svg) {
         .attr('class', 'server')
         .append(util.SVG('text')
                   .attr('class', 'serverid')
-                  .text('S' + server.id)
+                  .text(serverIdToText(server.id))
                   .attr({x: s.cx, y: s.cy - 40}))
         .append(util.SVG('a')
           .append(util.SVG('circle')
