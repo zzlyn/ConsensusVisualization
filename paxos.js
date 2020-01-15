@@ -32,6 +32,7 @@ const SERVER_STATE = {
 
 const MESSAGE_TYPE = {
   CLIENT_RQ: 'client_request',
+  CLIENT_REPLY: 'client_reply',
   PREPARE: 'prepare_msg',
   PROMISE: 'promise_msg',
   ACCEPT: 'accept_msg',
@@ -131,6 +132,11 @@ paxos.server = function(id, peers) {
     serverAttrs.previousTerm = -1;
   }
   
+  // Learner Specific Attributes.
+  if (serverAttrs.state === SERVER_STATE.LEARNER) {
+    serverAttrs.acceptedLog = {};
+  }
+
   return serverAttrs;
 };
 
@@ -295,7 +301,7 @@ var handleMessage = function(model, server, message) {
       break;
 
     case SERVER_STATE.LEARNER:
-      // handleMessageLearner(model, server, message);
+      handleMessageLearner(model, server, message);
       break;
 
     default:
@@ -495,6 +501,26 @@ var handleMessageAcceptor = function(model, server, message) {
 }
 
 /* End acceptor implementation. */
+
+var handleMessageLearner = function(model, server, message) {
+  var key = [message.acceptedProposalNum,message.acceptedProposalVal]
+  if (message.type == MESSAGE_TYPE.ACCEPTED) {
+    if(server.acceptedLog[key] == undefined){
+      server.acceptedLog[key] = 1;
+    } else {
+      server.acceptedLog[key] += 1; 
+    }
+    if(server.acceptedLog[key] > paxos.NUM_ACCEPTORS /2){
+      //majority of accepted message received.
+      sendMessage(model, {
+        from: message.to,
+        to: util.groupServers(state.current)[0][0].id,
+        type: MESSAGE_TYPE.CLIENT_REPLY
+      });
+      server.acceptedLog[key] = undefined;
+    }
+  }
+}
 
 // Public function.
 paxos.update = function(model) {
