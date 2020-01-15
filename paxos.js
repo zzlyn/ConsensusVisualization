@@ -638,10 +638,10 @@ var ringSpec = {
 };
 
 var columnSpec = {
-  cx: 210,
+  cx: 380,
   cy: 160,
-  xGap: 100,
-  yGap: 90,
+  xGap: 160,
+  yGap: 100,
 };
 
 var serverSpec = function(id,model) {
