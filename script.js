@@ -154,8 +154,14 @@ util.activate = function () {
     render.clock();
     render.servers(serversSame, svg);
     render.messages(messagesSame, svg);
-    //if (!serversSame)
-    //  render.logs(svg);
+    if (!serversSame){
+      if(activeProtocol == 'paxos'){
+        
+      } else{
+        render.logs(svg);
+      }
+      
+    }
   };
 
   // Time advancement, and translating wall clock time to a "model" time based
