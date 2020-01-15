@@ -71,16 +71,20 @@ var serverIdToState = function(id) {
 // Define color per server state. Returns 'black' for unknown state.
 // (TODO: tune the colors to look smoother.)
 var serverStateToColor = function(state) {
+  if (state === SERVER_STATE.CLIENT) {
+    return '#BBB5A4';
+  }
+
   if (state === SERVER_STATE.PROPOSER) {
-    return 'green';
+    return '#AC8295';
   }
 
   if (state === SERVER_STATE.ACCEPTOR) {
-    return 'blue';
+    return '#4D243D';
   }
 
   if (state === SERVER_STATE.LEARNER) {
-    return 'yellow';
+    return '#F4EEE1';
   }
 
   return 'black'; // UNKNOWN.
@@ -869,8 +873,8 @@ paxos.render.servers = function(serversSame, svg) {
       serverNode.attr('class', 'server ' + server.state);
       $('circle.background', serverNode)
         .attr('style', 'fill: ' +
-              (server.state == 'stopped' ? 'gray'
-                : termColors[server.term % termColors.length]));
+              (server.state == SERVER_STATE.UNKNOWN ? 'gray'
+                : serverIdToColor(server.id)));
       serverNode
         .unbind('click')
         .click(function() {
