@@ -31,7 +31,7 @@ const SERVER_STATE = {
 }
 
 const MESSAGE_TYPE = {
-  CLIENT_RQ: 'ClientRequest',
+  CLIENT_RQ: 'client_request',
   PREPARE: 'prepare_msg',
   PROMISE: 'promise_msg',
   ACCEPT: 'accept_msg',
@@ -164,16 +164,36 @@ var logTerm = function(log, index) {
 var rules = {};
 paxos.rules = rules;
 
+paxos.latestTerm = 1;
+
 //send request from client to proposer
 paxos.sendClientRequest = function(model, server, proposer) {
+  // Prompt proposer number.
+  let proposerNumber = window.prompt('Send to which proposer?', '1');
+  if (proposerNumber == null) return;
+  if (proposerNumber <= 0 || proposerNumber > paxos.NUM_PROPOSERS) {
+    window.alert("Invalid Proposer Number, should be between (0, " + paxos.NUM_PROPOSERS + "].");
+    return;
+  }
+  
+  // Prompt proposing term.
+  let proposingTerm = window.prompt('Please give a term number:', paxos.latestTerm);
+  if (proposingTerm == null) return;
+  paxos.latestTerm = parseInt(proposingTerm, 10) + 1;  // Ready to suggest next term to be latest term + 1.
+  
+  // Prompt proposing value.
+  let proposingValue = window.prompt('Please give a proposing value:', 'abc');
+  if (proposingValue == null) return;
+  
   var group = util.groupServers(model);
   var clientId = group[0][0].id;
-  var proposers = group[1];
-  proposers.forEach(function(proposers){
-    sendRequest(model, {
-      from: clientId,
-      to: proposers.id,
-      type: 'ClientRequest'});
+  var proposer = group[1][proposerNumber - 1];
+  sendRequest(model, {
+    from: clientId,
+    to: proposer.id,
+    type: MESSAGE_TYPE.CLIENT_RQ,
+    term: proposingTerm,
+    value: proposingValue,
   });
 };
 
@@ -283,6 +303,9 @@ var handleMessageProposer = function(model, server, message) {
   if (message.type == MESSAGE_TYPE.CLIENT_RQ){
     if(server.phase === PROPOSER_PHASE.INACTIVE){
       server.phase = PROPOSER_PHASE.SEND_PREPARE;
+      // Take proposing term and value from client request.
+      server.term = message.term;
+      server.proposeValue = message.value;
     }
   }
 

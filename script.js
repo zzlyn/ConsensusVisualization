@@ -194,9 +194,10 @@ util.activate = function () {
       //if paxos send clientRequestMessage
       if (activeProtocol == 'paxos') {
         state.fork();
+        playback.pause();
         protocol.sendClientRequest(state.current);
         state.save();
-        render.update();
+        playback.resume();
         $('.modal').modal('hide');
       }
       if (leader !== null) {
