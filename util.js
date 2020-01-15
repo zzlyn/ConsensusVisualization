@@ -43,7 +43,7 @@ util.verticalCoord = function(type,num,xGap,yGap,cx,cy,NUM_P,NUM_A,NUM_L){
     }
     return{
       x: cx - 0.5*xGap,
-      y: cy - (NUM_P-1)*yGap/2 + num*yGap - offset,
+      y: cy - (NUM_P)*yGap/2 + num*yGap - offset,
     }
   } else if(type == 'acceptor'){
     if(NUM_A%2 == 0){

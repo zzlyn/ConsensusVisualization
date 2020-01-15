@@ -14,7 +14,7 @@ var paxos = {};
 // Configure these variables to define the number of proposers, accepters 
 // and learners in the consensus.
 paxos.NUM_CLIENTS = 1;
-paxos.NUM_PROPOSERS = 1;
+paxos.NUM_PROPOSERS = 2;
 paxos.NUM_ACCEPTORS = 3;
 paxos.NUM_LEARNERS = 1;
 
@@ -31,7 +31,7 @@ const SERVER_STATE = {
 }
 
 const MESSAGE_TYPE = {
-  CLIENT_RQ: 'ClientRequest',
+  CLIENT_RQ: 'client_request',
   CLIENT_REPLY: 'client_reply',
   PREPARE: 'prepare_msg',
   PROMISE: 'promise_msg',
@@ -72,16 +72,20 @@ var serverIdToState = function(id) {
 // Define color per server state. Returns 'black' for unknown state.
 // (TODO: tune the colors to look smoother.)
 var serverStateToColor = function(state) {
+  if (state === SERVER_STATE.CLIENT) {
+    return '#BBB5A4';
+  }
+
   if (state === SERVER_STATE.PROPOSER) {
-    return 'green';
+    return '#AC8295';
   }
 
   if (state === SERVER_STATE.ACCEPTOR) {
-    return 'blue';
+    return '#4D243D';
   }
 
   if (state === SERVER_STATE.LEARNER) {
-    return 'yellow';
+    return '#F4EEE1';
   }
 
   return 'black'; // UNKNOWN.
@@ -170,16 +174,40 @@ var logTerm = function(log, index) {
 var rules = {};
 paxos.rules = rules;
 
+paxos.latestTerm = 1;
+
 //send request from client to proposer
 paxos.sendClientRequest = function(model, server, proposer) {
+  // Prompt proposer number.
+  let proposerNumber = window.prompt('Send to which proposer?', '1');
+  if (proposerNumber == null) return;
+  if (proposerNumber <= 0 || proposerNumber > paxos.NUM_PROPOSERS) {
+    window.alert("Invalid Proposer Number, should be between (0, " + paxos.NUM_PROPOSERS + "].");
+    return;
+  }
+  
+  // Prompt proposing term.
+  let proposingTerm = window.prompt('Please give a term number:', paxos.latestTerm);
+  if (proposingTerm == null) return;
+  
+  // Prompt proposing value.
+  let proposingValue = window.prompt('Please give a proposing value:', 'abc');
+  if (proposingValue == null) return;
+
+  // Ready to suggest next term to be latest term + 1.
+  if (parseInt(proposingTerm, 10) > paxos.latestTerm) {
+    paxos.latestTerm = parseInt(proposingTerm, 10) + 1;
+  }
+  
   var group = util.groupServers(model);
   var clientId = group[0][0].id;
-  var proposers = group[1];
-  proposers.forEach(function(proposers){
-    sendRequest(model, {
-      from: clientId,
-      to: proposers.id,
-      type: 'ClientRequest'});
+  var proposer = group[1][proposerNumber - 1];
+  sendRequest(model, {
+    from: clientId,
+    to: proposer.id,
+    type: MESSAGE_TYPE.CLIENT_RQ,
+    term: proposingTerm,
+    value: proposingValue,
   });
 };
 
@@ -289,6 +317,9 @@ var handleMessageProposer = function(model, server, message) {
   if (message.type == MESSAGE_TYPE.CLIENT_RQ){
     if(server.phase === PROPOSER_PHASE.INACTIVE){
       server.phase = PROPOSER_PHASE.SEND_PREPARE;
+      // Take proposing term and value from client request.
+      server.term = message.term;
+      server.proposeValue = message.value;
     }
   }
 
@@ -660,15 +691,6 @@ var messageArrowSpec = function(from, to, frac, model) {
   ].join(' ');
 };
 
-var termColors = [
-  '#66c2a5',
-  '#fc8d62',
-  '#8da0cb',
-  '#e78ac3',
-  '#a6d854',
-  '#ffd92f',
-];
-
 var serverActions = [
   ['stop', paxos.stop],
   ['resume', paxos.resume],
@@ -870,8 +892,8 @@ paxos.render.servers = function(serversSame, svg) {
       serverNode.attr('class', 'server ' + server.state);
       $('circle.background', serverNode)
         .attr('style', 'fill: ' +
-              (server.state == 'stopped' ? 'gray'
-                : termColors[server.term % termColors.length]));
+              (server.state == SERVER_STATE.UNKNOWN ? 'gray'
+                : serverIdToColor(server.id)));
       serverNode
         .unbind('click')
         .click(function() {
@@ -906,6 +928,23 @@ paxos.render.servers = function(serversSame, svg) {
   });
 };
 
+var serverIdToText = function(id) {
+  let state = serverIdToState(id);
+  if (state === SERVER_STATE.CLIENT) {
+    return 'C' + id;
+  }
+  if (state === SERVER_STATE.PROPOSER) {
+    return 'P' + (id - paxos.NUM_CLIENTS);
+  }
+  if (state === SERVER_STATE.ACCEPTOR) {
+    return 'A' + (id - paxos.NUM_CLIENTS - paxos.NUM_PROPOSERS);
+  }
+  if (state === SERVER_STATE.LEARNER) {
+    return 'L' + (id - paxos.NUM_CLIENTS - paxos.NUM_PROPOSERS - paxos.NUM_ACCEPTORS);
+  }
+  return '?';  // Unknown.
+}
+
 // Public API.
 paxos.appendServerInfo = function(state, svg) {
   state.current.servers.forEach(function(server) {
@@ -916,7 +955,7 @@ paxos.appendServerInfo = function(state, svg) {
         .attr('class', 'server')
         .append(util.SVG('text')
                   .attr('class', 'serverid')
-                  .text('S' + server.id)
+                  .text(serverIdToText(server.id))
                   .attr({x: s.cx, y: s.cy - 40}))
         .append(util.SVG('a')
           .append(util.SVG('circle')
