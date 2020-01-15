@@ -120,6 +120,8 @@ paxos.server = function(id, peers) {
   // Proposer Specific Attributes.
   if (serverAttrs.state === SERVER_STATE.PROPOSER) {
     serverAttrs.phase = PROPOSER_PHASE.INACTIVE;
+    // For proposal value replacement.
+    serverAttrs.largestAcceptedTerm = -1;
     // For WAIT_PROMISE phase.
     serverAttrs.grantedPromises = 0;
     // For WAIT_ACCEPTED phase.
@@ -129,7 +131,12 @@ paxos.server = function(id, peers) {
 
   // Acceptor Specific Attributes.
   if (serverAttrs.state === SERVER_STATE.ACCEPTOR) {
-    serverAttrs.previousTerm = -1;
+    // Determine how to respond to promise messages.
+    serverAttrs.promisedTerm = -1;
+    // Take care of accept (phase 2) logic.
+    serverAttrs.hasAccepted = false;
+    serverAttrs.acceptedTerm = -1;
+    serverAttrs.acceptedValue = null;
   }
   
   // Learner Specific Attributes.
@@ -174,7 +181,7 @@ var logTerm = function(log, index) {
 var rules = {};
 paxos.rules = rules;
 
-paxos.latestTerm = 1;
+paxos.latestTerm = 0;
 
 //send request from client to proposer
 paxos.sendClientRequest = function(model, server, proposer) {
@@ -195,7 +202,7 @@ paxos.sendClientRequest = function(model, server, proposer) {
   if (proposingValue == null) return;
 
   // Ready to suggest next term to be latest term + 1.
-  if (parseInt(proposingTerm, 10) > paxos.latestTerm) {
+  if (parseInt(proposingTerm, 10) >= paxos.latestTerm) {
     paxos.latestTerm = parseInt(proposingTerm, 10) + 1;
   }
   
@@ -330,13 +337,13 @@ var handleMessageProposer = function(model, server, message) {
       // term number. This proposer will try to propose for that value
       // instead of its original value.
       //
-      // The initial server.previousTerm is set to '-1' so this replacement
+      // The initial acceptor.promisedTerm is set to '-1' so this replacement
       // is guaranteed to happen if there was a legit accepted value.
       // 
       // For Acceptors, previouslyAcceptedTerm and previouslyAcceptedValue
       // should be set/unset together.
-      if (message.previouslyAcceptedTerm > server.term ) {
-        server.term = message.previouslyAcceptedTerm;
+      if (message.previouslyAcceptedTerm > server.largestAcceptedTerm ) {
+        server.largestAcceptedTerm = message.previouslyAcceptedTerm;
         server.proposeValue = message.previouslyAcceptedValue;
       }
       server.grantedPromises += 1;
@@ -382,7 +389,7 @@ var handleProposerUpdate = function(model, server) {
     server.phase = PROPOSER_PHASE.WAIT_PROMISE;  // Enter next phase.
     // Used to compare & choose the largest accepted value to
     // propose instead in the next phase.
-    server.previousTerm = -1; 
+    server.largestAcceptedTerm = -1; 
     return;
   }
 
@@ -427,34 +434,38 @@ var handleProposerUpdate = function(model, server) {
 var handlePrepareMessage = function(model, server, proposalMsg) {
   // handes the PREPARE message that this (acceptor) server received from proposer
   // term check
-  if (proposalMsg.term < server.previousTerm ) {
+  if (proposalMsg.term < server.promisedTerm ) {
     return;
   }
   
-  server.previousTerm = proposalMsg.term;
+  // Promise to ignore other requests with term number smaller than this.
+  server.promisedTerm = proposalMsg.term;
+
+  let messageSpec = { type: MESSAGE_TYPE.PROMISE };
+  // Fill in these if acceptor has accepted something before.
+  if (server.hasAccepted) {
+    messageSpec.previouslyAcceptedTerm = server.acceptedTerm;
+    messageSpec.previouslyAcceptedValue = server.acceptedValue;
+  }
 
   // send reply (prepare reply = promise)
-  sendReply(model, proposalMsg, {
-    type: MESSAGE_TYPE.PROMISE,
-    previouslyAcceptedTerm: -1,
-  });
+  sendReply(model, proposalMsg, messageSpec);
 }
 
 var handleAcceptMessage = function(model, server, acceptMsg) {
   // handes the ACCEPT message that this (acceptor) server received from proposer
   // term check
-  if (acceptMsg.term < server.previousTerm ) {
+  if (acceptMsg.term < server.promisedTerm ) {
     return;
   }
 
   // else we have accepted the value
+  server.hasAccepted = true;
 
-  // update the term
-  server.previousTerm = acceptMsg.term;
-
-  // DOUBT: this server (acceptor) has to store the accepted term and accepted value. What server attributes are those?
-  server.previouslyAcceptedTerm = acceptMsg.term;
-  server.previouslyAcceptedValue = acceptMsg.value;
+  // Register accepted term & value
+  // This line can be reached even if acceptor has accepted something in the past already.
+  server.acceptedTerm = acceptMsg.term;
+  server.acceptedValue = acceptMsg.value;
 
   // send reply (accept reply = broadcast to all proposers and learners)
   // look into the server's peers and ignore if they are acceptors
@@ -474,17 +485,8 @@ var handleAcceptMessage = function(model, server, acceptMsg) {
       from: server.id,
       to: peer,
       type: MESSAGE_TYPE.ACCEPTED,
-      term: server.term,
-      value: server.proposeValue,
-
-      // not sure about these last two attributes.
-      // This sendMessage will call handleMessage and if you trace the steps it should call:
-      // 1. handleMessageProposer
-      // 2. handleMessageLearner
-      // in both those handle messages we set previous term and proposal value.
-      // For that, we send the following two variables like this: Is it correct?
-      previouslyAcceptedTerm: server.previouslyAcceptedTerm,
-      previouslyAcceptedValue: server.previouslyAcceptedValue,
+      term: server.acceptedTerm,
+      value: server.acceptedValue,
     });
   });
 }
@@ -740,9 +742,9 @@ var fillAcceptorModalBody = function(m, server, li) {
     .empty()
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
-      .append(li('current term', server.term))
-      .append(li('promised term', server.previousTerm))
-      .append(li('accpeted value', server.previouslyAcceptedValue))
+      .append(li('promised term', server.promisedTerm))
+      .append(li('accepted term', server.acceptedTerm))
+      .append(li('accpeted value', server.acceptedValue))
     );
 }
 
@@ -752,7 +754,7 @@ var fillLearnerModalBody = function(m, server, li) {
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
       .append(li('current term', server.term))
-      // .append(li('decided value', server.previousTerm))
+      // .append(li('decided value', server.promisedTerm))
     );
 }
 
