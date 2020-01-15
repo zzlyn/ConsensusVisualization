@@ -181,7 +181,7 @@ var logTerm = function(log, index) {
 var rules = {};
 paxos.rules = rules;
 
-paxos.latestTerm = 1;
+paxos.latestTerm = 0;
 
 //send request from client to proposer
 paxos.sendClientRequest = function(model, server, proposer) {
@@ -202,7 +202,7 @@ paxos.sendClientRequest = function(model, server, proposer) {
   if (proposingValue == null) return;
 
   // Ready to suggest next term to be latest term + 1.
-  if (parseInt(proposingTerm, 10) > paxos.latestTerm) {
+  if (parseInt(proposingTerm, 10) >= paxos.latestTerm) {
     paxos.latestTerm = parseInt(proposingTerm, 10) + 1;
   }
   
