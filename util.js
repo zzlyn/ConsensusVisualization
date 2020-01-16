@@ -214,3 +214,21 @@ util.serverIdtoNumInGroup = function(Id, model){
   });
   return ans;
 }
+
+util.resetStates = function(model){
+  var groupedServers = util.groupServers(model);
+  groupedServers[2].forEach(function(server){//acceptor
+    server.promisedTerm = -1;
+    server.acceptedTerm = -1;
+    server.acceptedValue = null;
+    server.term = 1;
+  })
+  groupedServers[1].forEach(function(server){//proposer
+    server.proposeValue = Math.random().toString(36).substring(7);
+    server.term = 1;
+  })
+  groupedServers[3].forEach(function(server){
+    server.learnedValue = null;
+    server.term = 1;
+  })
+}

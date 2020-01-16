@@ -156,7 +156,7 @@ util.activate = function () {
     render.messages(messagesSame, svg);
     if (!serversSame){
       if(activeProtocol == 'paxos'){
-        
+
       } else{
         render.logs(svg);
       }
@@ -254,6 +254,12 @@ util.activate = function () {
     } else if (e.keyCode == 191 && e.shiftKey) { // question mark
       playback.pause();
       $('#modal-help').modal('show');
+    } else if (e.keyCode == 'Z'.charCodeAt(0)) {
+      state.fork();
+      util.resetStates(state.current);
+      state.save();
+      render.update();
+      $('#modal-help').modal('hide');
     }
   });
 

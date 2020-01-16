@@ -142,7 +142,7 @@ paxos.server = function(id, peers) {
   // Learner Specific Attributes.
   if (serverAttrs.state === SERVER_STATE.LEARNER) {
     serverAttrs.acceptedLog = {};
-    serverAttrs.value = null;
+    serverAttrs.learnedValue = null;
   }
 
   return serverAttrs;
@@ -507,7 +507,7 @@ var handleMessageAcceptor = function(model, server, message) {
 
 var handleMessageLearner = function(model, server, message) {
   // Already decided one value in this round of Paxos.
-  if (server.value !== null) {
+  if (server.learnedValue !== null) {
     return;
   }
   if (message.type == MESSAGE_TYPE.ACCEPTED) {
@@ -518,15 +518,17 @@ var handleMessageLearner = function(model, server, message) {
       server.acceptedLog[key] += 1; 
     }
     if(server.acceptedLog[key] > paxos.NUM_ACCEPTORS /2){
-      server.value = key;
       //majority of accepted message received.
+      server.learnedValue = message.value;
+      server.term = message.term;
+      server.acceptedLog = {};
       sendMessage(model, {
         from: message.to,
         to: util.groupServers(state.current)[0][0].id,
         type: MESSAGE_TYPE.CLIENT_REPLY,
-        value: server.value,
+        value: server.learnedValue,
+        term: server.term,
       });
-      server.acceptedLog[key] = undefined;
     }
   }
 }
@@ -760,7 +762,8 @@ var fillLearnerModalBody = function(m, server, li) {
     .empty()
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
-      .append(li('term, value', server.value))
+      .append(li('current term', server.term))
+      .append(li('learned value', server.learnedValue))
     );
 }
 
@@ -840,8 +843,8 @@ var fillAcceptedMessageFields = function(message, fields, li) {
 }
 
 var fillClientReplyFields = function(message, fields, li) {
-  fields.append(li('decided value', message.value[1]));
-  fields.append(li('from term', message.value[0]));
+  fields.append(li('decided value', message.value));
+  fields.append(li('from term', message.term));
 }
 
 var messageModal = function(model, message) {
