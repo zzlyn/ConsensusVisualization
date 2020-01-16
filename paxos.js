@@ -39,6 +39,30 @@ const MESSAGE_TYPE = {
   ACCEPTED: 'accepted_msg',
 }
 
+var messageTypeToText = function(type) {
+  switch(type) {
+    case MESSAGE_TYPE.CLIENT_RQ:
+      return "Client Request";
+
+    case MESSAGE_TYPE.CLIENT_REPLY:
+      return "Client Reply";
+         
+    case MESSAGE_TYPE.PREPARE:
+      return "Prepare";
+
+    case MESSAGE_TYPE.PROMISE:
+      return "Promise";
+
+    case MESSAGE_TYPE.ACCEPT:
+      return "Accept";
+
+    case MESSAGE_TYPE.ACCEPTED:
+      return "Accepted";
+  }
+
+  return "Unknown";
+}
+
 // Proposer specific phases.
 const PROPOSER_PHASE = {
   INACTIVE: 'inactive',
@@ -126,7 +150,7 @@ paxos.server = function(id, peers) {
     serverAttrs.grantedPromises = 0;
     // For WAIT_ACCEPTED phase.
     serverAttrs.grantedAccepts = 0;
-    serverAttrs.proposeValue = Math.random().toString(36).substring(7);  // Initiate empty proposers with random value to propose.
+    serverAttrs.proposeValue = null;
   }
 
   // Acceptor Specific Attributes.
@@ -762,7 +786,6 @@ var fillLearnerModalBody = function(m, server, li) {
     .empty()
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
-      .append(li('current term', server.term))
       .append(li('learned value', server.learnedValue))
     );
 }
@@ -825,7 +848,12 @@ var fillClientRequestFields = function(message, fields, li) {
   fields.append(li('propose value', message.value));
 }
 
+var fillPrepareMessageFields = function(message, fields, li) {
+  fields.append(li('term', message.term));
+}
+
 var fillPromiseMessageFields = function(message, fields, li) {
+  fields.append(li('term', message.term));
   if (message.previouslyAcceptedTerm != null) {
     fields.append(li('previous term', message.previouslyAcceptedTerm));
     fields.append(li('previous value', message.previouslyAcceptedValue));
@@ -850,18 +878,22 @@ var fillClientReplyFields = function(message, fields, li) {
 var messageModal = function(model, message) {
   var m = $('#modal-details');
   $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
-  $('.modal-title', m).text(message.type + ' ' + message.direction);
+  $('.modal-title', m).text(messageTypeToText(message.type));
   var li = function(label, value) {
     return '<dt>' + label + '</dt><dd>' + value + '</dd>';
   };
   var fields = $('<dl class="dl-horizontal"></dl>')
-      .append(li('from', 'S' + message.from))
-      .append(li('to', 'S' + message.to))
+      .append(li('from', serverIdToText(message.from)))
+      .append(li('to', serverIdToText(message.to)))
       .append(li('sent', util.relTime(message.sendTime, model.time)))
       .append(li('deliver', util.relTime(message.recvTime, model.time)));
   switch(message.type) {
     case MESSAGE_TYPE.CLIENT_RQ:
       fillClientRequestFields(message, fields, li);
+      break;
+
+    case MESSAGE_TYPE.PREPARE:
+      fillPrepareMessageFields(message, fields, li);
       break;
 
     case MESSAGE_TYPE.PROMISE:
@@ -1100,7 +1132,7 @@ paxos.render.messages = function(messagesSame, svg) {
       var a = util.SVG('a')
           .attr('id', 'message-' + i)
           .attr('class', 'message ' + message.direction + ' ' + message.type)
-          .attr('title', message.type + ' ' + message.direction)//.tooltip({container: 'body'})
+          .attr('title', message.type)
           .append(util.SVG('circle'))
           .append(util.SVG('path').attr('class', 'message-direction'));
       if (message.direction == 'reply')
