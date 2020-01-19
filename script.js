@@ -276,12 +276,15 @@ util.activate = function () {
       } else {
         state.current.liveLock = true;
       }
+<<<<<<< HEAD
       var lock = document.getElementById("lock-icon");
       if (lock.style.display === "none") {
         lock.style.display = "block";
       } else {
         lock.style.display = "none";
       }
+=======
+>>>>>>> [Paxos] configured shortcut X to set livelock option to be true
     }
   });
 

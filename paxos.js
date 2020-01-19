@@ -21,12 +21,11 @@ paxos.NUM_LEARNERS = 1;
 // Public Variable.
 paxos.NUM_SERVERS = paxos.NUM_CLIENTS + paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS + paxos.NUM_LEARNERS;
 
-var PROPOSER_TIMEOUT = 20000;
+var PROPOSER_TIMEOUT = 40000;
 
 var MIN_LATENCY = 15000;
 
 var liveLockDelay = 80000;
-var liveLock = true;
 
 // Use these utils to identify server state.
 const SERVER_STATE = {
@@ -186,7 +185,7 @@ var sendMessage = function(model, message) {
   message.recvTime = model.time +
                      MIN_LATENCY +
                      Math.random() * 0.1 * MIN_LATENCY;
-  if(liveLock && message.type == MESSAGE_TYPE.PROMISE){
+  if(model.liveLock && message.type == MESSAGE_TYPE.PROMISE){
     message.recvTime += liveLockDelay;
   }
   model.messages.push(message);
