@@ -139,6 +139,7 @@ paxos.server = function(id, peers) {
     matchIndex:   util.makeMap(peers, 0),
     nextIndex:    util.makeMap(peers, 1),
     rpcDue:       util.makeMap(peers, 0),
+    stopped: false,
   };
 
   // Proposer Specific Attributes.
@@ -323,6 +324,9 @@ var handleAppendEntriesReply = function(model, server, reply) {
 };
 
 var handleMessage = function(model, server, message) {
+  if(server.stopped){
+    return;
+  }
   switch(serverIdToState(server.id)) {
     case SERVER_STATE.PROPOSER:
       handleMessageProposer(model, server, message);
@@ -599,12 +603,12 @@ paxos.update = function(model) {
 
 // Public function.
 paxos.stop = function(model, server) {
-  server.state = 'stopped';
+  server.stopped = true;
 };
 
 // Public function.
 paxos.resume = function(model, server) {
-  server.state = 'follower';
+  server.stopped = false;
 };
 
 // Public function.
@@ -951,7 +955,7 @@ paxos.render.servers = function(serversSame, svg) {
       serverNode.attr('class', 'server ' + server.state);
       $('circle.background', serverNode)
         .attr('style', 'fill: ' +
-              (server.state == SERVER_STATE.UNKNOWN ? 'gray'
+              (server.stopped == true ? 'gray'
                 : serverIdToColor(server.id)));
       serverNode
         .unbind('click')
