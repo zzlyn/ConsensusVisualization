@@ -282,3 +282,7 @@ a#time-button  {
   list-style:none;
   left:50%;
 }
+
+.client-input {
+  margin-left: 20px;
+}

@@ -243,6 +243,30 @@ paxos.sendClientRequest = function(model, server, proposer) {
   });
 };
 
+//send request from client to proposer
+paxos.sendClientRequest2 = function(model, term, target, value) {
+  if (target <= 0 || target > paxos.NUM_PROPOSERS) {
+    window.alert("Invalid Proposer Number, should be between (0, " + paxos.NUM_PROPOSERS + "].");
+    return;
+  }
+  
+  // Ready to suggest next term to be latest term + 1.
+  if (parseInt(term, 10) >= paxos.latestTerm) {
+    paxos.latestTerm = parseInt(term, 10) + 1;
+  }
+  
+  var group = util.groupServers(model);
+  var clientId = group[0][0].id;
+  var proposer = group[1][target - 1];
+  sendRequest(model, {
+    from: clientId,
+    to: proposer.id,
+    type: MESSAGE_TYPE.CLIENT_RQ,
+    term: term,
+    value: value,
+  });
+};
+
 rules.sendAppendEntries = function(model, server, peer) {
   if (server.state == 'leader' &&
       (server.nextIndex[peer] <= server.log.length &&
@@ -625,7 +649,25 @@ paxos.drop = function(model, message) {
   });
 };
 
-paxos.clientRequest = function(model, server) {
+paxos.clientRequest = function(modal, server) {
+  if (server.state === SERVER_STATE.CLIENT) {
+    let term = parseInt(document.getElementById('client-term').value, 10);
+    if (isNaN(term)) {
+      window.alert("failed to send request: term number is invalid");
+      return;
+    }
+    let target = parseInt(document.getElementById('client-target').value, 10);
+    if (isNaN(target)) {
+      window.alert("failed to send request: target proposer number is invalid");
+      return;
+    }
+    let value = document.getElementById('client-value').value;
+    if (value == '') {
+      window.alert("failed to send request: value input required");
+      return;
+    }
+    paxos.sendClientRequest2(modal, term, target, value);
+  }
   if (server.state == 'leader') {
     server.log.push({term: server.term,
                      value: 'v'});
@@ -757,7 +799,13 @@ var fillClientModalBody = function(m, server, li) {
     .empty()
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
-    );
+      .append('<dt>term</dt><input id="client-term" type="text" class="client-input"><br>')  // Client term.
+      .append('<dt>proposer #</dt><input id="client-target" type="text" class="client-input"><br>')  // Client target proposer.
+      .append('<dt>value</dt><input id="client-value" type="text" class="client-input"><br>')  // Client target proposer.
+    )
+    document.getElementById('client-term').value = paxos.latestTerm;  // default to next term.
+    document.getElementById('client-target').value = '1';  // default to first proposer.
+    document.getElementById('client-value').value = 'abc';  // default to a sample value.
 }
 
 var fillProposerModalBody = function(m, server, li) {

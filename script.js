@@ -189,6 +189,9 @@ util.activate = function () {
   })();
 
   $(window).keyup(function (e) {
+    if ($('.modal').hasClass('in')) {
+      return;
+    }
     if (e.target.id == "title")
       return;
     var leader = protocol.getLeader();
