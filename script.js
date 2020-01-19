@@ -189,6 +189,7 @@ util.activate = function () {
   })();
 
   $(window).keyup(function (e) {
+    // Disable if modal is brought up.
     if ($('.modal').hasClass('in')) {
       return;
     }
