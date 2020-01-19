@@ -27,6 +27,21 @@ util.circleCoord = function(frac, cx, cy, r) {
   };
 };
 
+util.paxosLayoutCoord = function(frac, state, cx, cy, r) {
+  if (state != 'client') {
+    return {
+      x: (cx - r) + (r - r*Math.cos(2*Math.PI*frac)),
+      y: cy - r*Math.sin(2*Math.PI*frac),
+    };
+  }
+  else {
+    return {
+      x: 150,
+      y: cy,
+    };
+  } 
+};
+
 util.verticalCoord = function(type,num,xGap,yGap,cx,cy,NUM_P,NUM_A,NUM_L){
   var offset;
   if(type == 'client'){

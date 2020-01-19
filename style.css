@@ -99,9 +99,9 @@ svg .message.AppendEntries {
 }
 
 /* Start: PAXOS MESSAGES SVG COLORS */
-svg .message.ClientRequest {
-  fill:   #000000; /*black*/
-  stroke: #000000;
+svg .message.client_request {
+  fill:   #929292; /*gray*/
+  stroke: #929292;
 }
 
 svg .message.prepare_msg {
@@ -124,9 +124,9 @@ svg .message.accepted_msg {
   stroke: #FFA500;
 }
 
-svg .message.LearnerReply {
-  fill:   #808080; /*grey*/
-  stroke: #808080;
+svg .message.client_reply {
+  fill:   #929292; /*gray*/
+  stroke: #929292;
 }
 /* End: PAXOS MESSAGES SVG COLORS */
 

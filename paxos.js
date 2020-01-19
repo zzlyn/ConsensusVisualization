@@ -713,7 +713,7 @@ var logsSpec = {
 };
 
 var ringSpec = {
-  cx: 210,
+  cx: 500,
   cy: 210,
   r: 150,
 };
@@ -726,9 +726,13 @@ var columnSpec = {
 };
 
 var serverSpec = function(id,model) {
-  var coord = util.verticalCoord(model.servers[id-1].state,util.serverIdtoNumInGroup(id,model),
+  /*var coord = util.verticalCoord(model.servers[id-1].state,util.serverIdtoNumInGroup(id,model),
                                  columnSpec.xGap,columnSpec.yGap,columnSpec.cx,columnSpec.cy,
-                                 paxos.NUM_PROPOSERS,paxos.NUM_ACCEPTORS,paxos.NUM_LEARNERS);               
+                                 paxos.NUM_PROPOSERS,paxos.NUM_ACCEPTORS,paxos.NUM_LEARNERS);*/
+
+  var coord = util.paxosLayoutCoord((id-2) / (paxos.NUM_SERVERS - paxos.NUM_CLIENTS), model.servers[id-1].state,
+                               ringSpec.cx, ringSpec.cy, ringSpec.r);
+
   return {
     cx: coord.x,
     cy: coord.y,
