@@ -107,7 +107,7 @@ util.activate = function () {
   var svg = $('svg');
 
   // Ring is only rendered once, so no need to include it in render.update below.
-  if (activeProtocol == 'raft') {//only show ring if raft is active
+  if (activeProtocol == 'raft' || activeProtocol == 'paxos') {//only show ring if raft/paxos is active
     render.ring = protocol.render.ring;
     render.ring(svg);
   }
