@@ -269,6 +269,12 @@ util.activate = function () {
       } else {
         state.current.liveLock = true;
       }
+      var lock = document.getElementById("lock-icon");
+      if (lock.style.display === "none") {
+        lock.style.display = "block";
+      } else {
+        lock.style.display = "none";
+      }
     }
   });
 
