@@ -42,6 +42,9 @@ util.activate = function () {
     messages: [],
   });
 
+  //if true add delay to promise message in order to simulate livelock
+  state.current.liveLock = false;
+
   var sliding = false;
 
   playback = function () {
@@ -267,6 +270,12 @@ util.activate = function () {
       state.save();
       render.update();
       $('#modal-help').modal('hide');
+    } else if (e.keyCode == 'X'.charCodeAt(0)) {
+      if(state.current.liveLock){
+        state.current.liveLock = false;
+      } else {
+        state.current.liveLock = true;
+      }
     }
   });
 
