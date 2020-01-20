@@ -193,9 +193,12 @@ util.activate = function () {
     if ($('.modal').hasClass('in')) {
       return;
     }
-    if (e.target.id == "title")
+    if (e.target.id == "title"){
       return;
-    var leader = protocol.getLeader();
+    }
+    if (protocol == raft){
+      var leader = protocol.getLeader();
+    }
     if (e.keyCode == ' '.charCodeAt(0) ||
       e.keyCode == 190 ) {// dot, emitted by Logitech remote
       $('.modal').modal('hide');

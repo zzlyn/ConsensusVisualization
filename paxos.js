@@ -268,85 +268,6 @@ paxos.sendClientRequest2 = function(model, term, target, value) {
   });
 };
 
-rules.sendAppendEntries = function(model, server, peer) {
-  if (server.state == 'leader' &&
-      (server.nextIndex[peer] <= server.log.length &&
-        server.rpcDue[peer] <= model.time)) {
-    var prevIndex = server.nextIndex[peer] - 1;
-    var lastIndex = Math.min(prevIndex + BATCH_SIZE,
-                             server.log.length);
-    if (server.matchIndex[peer] + 1 < server.nextIndex[peer])
-      lastIndex = prevIndex;
-    sendRequest(model, {
-      from: server.id,
-      to: peer,
-      type: 'AppendEntries',
-      term: server.term,
-      prevIndex: prevIndex,
-      prevTerm: logTerm(server.log, prevIndex),
-      entries: server.log.slice(prevIndex, lastIndex),
-      commitIndex: Math.min(server.commitIndex, lastIndex)});
-  }
-};
-
-rules.advanceCommitIndex = function(model, server) {
-  var matchIndexes = util.mapValues(server.matchIndex).concat(server.log.length);
-  matchIndexes.sort(util.numericCompare);
-  var n = matchIndexes[Math.floor(paxos.NUM_SERVERS / 2)];
-  if (server.state == 'leader' &&
-      logTerm(server.log, n) == server.term) {
-    server.commitIndex = Math.max(server.commitIndex, n);
-  }
-};
-
-var handleAppendEntriesRequest = function(model, server, request) {
-  var success = false;
-  var matchIndex = 0;
-  if (server.term < request.term)
-    stepDown(model, server, request.term);
-  if (server.term == request.term) {
-    server.state = 'follower';
-    if (request.prevIndex === 0 ||
-        (request.prevIndex <= server.log.length &&
-         logTerm(server.log, request.prevIndex) == request.prevTerm)) {
-      success = true;
-      var index = request.prevIndex;
-      for (var i = 0; i < request.entries.length; i += 1) {
-        index += 1;
-        if (logTerm(server.log, index) != request.entries[i].term) {
-          while (server.log.length > index - 1)
-            server.log.pop();
-          server.log.push(request.entries[i]);
-        }
-      }
-      matchIndex = index;
-      server.commitIndex = Math.max(server.commitIndex,
-                                    request.commitIndex);
-    }
-  }
-  sendReply(model, request, {
-    term: server.term,
-    success: success,
-    matchIndex: matchIndex,
-  });
-};
-
-var handleAppendEntriesReply = function(model, server, reply) {
-  if (server.term < reply.term)
-    stepDown(model, server, reply.term);
-  if (server.state == 'leader' &&
-      server.term == reply.term) {
-    if (reply.success) {
-      server.matchIndex[reply.from] = Math.max(server.matchIndex[reply.from],
-                                               reply.matchIndex);
-      server.nextIndex[reply.from] = reply.matchIndex + 1;
-    } else {
-      server.nextIndex[reply.from] = Math.max(1, server.nextIndex[reply.from] - 1);
-    }
-    server.rpcDue[reply.from] = 0;
-  }
-};
-
 var handleMessage = function(model, server, message) {
   if(server.stopped){
     return;
@@ -678,25 +599,6 @@ paxos.clientRequest = function(modal, server) {
   }
 };
 
-paxos.setupLogReplicationScenario = function(model) {
-  var s1 = model.servers[0];
-  paxos.restart(model, model.servers[1]);
-  paxos.restart(model, model.servers[2]);
-  paxos.restart(model, model.servers[3]);
-  paxos.restart(model, model.servers[4]);
-  paxos.timeout(model, model.servers[0]);
-  model.servers[1].term = 2;
-  model.servers[2].term = 2;
-  model.servers[3].term = 2;
-  model.servers[4].term = 2;
-  paxos.stop(model, model.servers[2]);
-  paxos.stop(model, model.servers[3]);
-  paxos.stop(model, model.servers[4]);
-  paxos.clientRequest(model, s1);
-  paxos.clientRequest(model, s1);
-  paxos.clientRequest(model, s1);
-};
-
 /* End paxos algorithm logic */
 
 /* Begin paxos-specific visualization */
@@ -789,18 +691,6 @@ var messageActions = [
 ];
 
 // Public method but may be specific to paxos Only.
-paxos.getLeader = function() {
-  var leader = null;
-  var term = 0;
-  state.current.servers.forEach(function(server) {
-    if (server.state == 'leader' &&
-        server.term > term) {
-        leader = server;
-        term = server.term;
-    }
-  });
-  return leader;
-};
 
 var fillClientModalBody = function(m, server, li) {
   $('.modal-body', m)
@@ -1109,7 +999,6 @@ paxos.render.logs = function(svg) {
       .attr('id', 'logsbg')
       .attr(logsSpec));
   var height = (logsSpec.height - INDEX_HEIGHT) / paxos.NUM_SERVERS;
-  var leader = paxos.getLeader();
   var indexSpec = {
     x: logsSpec.x + LABEL_WIDTH + logsSpec.width * 0.05,
     y: logsSpec.y + 2*height/6,
@@ -1167,15 +1056,6 @@ paxos.render.logs = function(svg) {
              entry,
              index <= server.commitIndex));
     });
-    if (leader !== null && leader != server) {
-      log.append(
-        util.SVG('circle')
-          .attr('title', 'match index')//.tooltip({container: 'body'})
-          .attr({cx: logEntrySpec(leader.matchIndex[server.id] + 1).x,
-                 cy: logSpec.y + logSpec.height,
-                 r: 5}));
-      var x = logEntrySpec(leader.nextIndex[server.id] + 0.5).x;
-    }
   });
 };
 
