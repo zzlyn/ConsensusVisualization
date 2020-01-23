@@ -295,6 +295,7 @@ rules.sendPrePrepare = function(model, server, peer) {
     };
     server.nextSequenceNumber += 1;
     server.clientMessagesToSend[server.view][peer - 1].push(request);
+    server.prePrepareRequestsSent[server.view][peer - 1].push(request);
     sendRequest(model, request);
   }
 };
