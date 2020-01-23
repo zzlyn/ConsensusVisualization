@@ -96,6 +96,7 @@ pbft.server = function(id, peers) {
     clientMessagesToSend: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
     prePrepareRequestsSent: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
     sentPrepareRequests: {},
+    sentCommitRequests: {},
   };
 };
 
@@ -404,8 +405,14 @@ rules.sendCommits = function(model, server, peer) {
   if (server.preparedMessagesToCommit[server.view] == undefined) {
     server.preparedMessagesToCommit[server.view] = {};
   }
+  if (server.sentCommitRequests[server.view] == undefined) {
+    server.sentCommitRequests[server.view] = {};
+  }
   Object.entries(server.preparedMessagesToCommit[server.view]).forEach(function([n, requests]) {
     console.assert(requests.length <= 1);
+    if (server.sentCommitRequests[server.view][n] == undefined) {
+      server.sentCommitRequests[server.view][n] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    }
     if ((server.state != 'changing-view') &&
         (requests.length === 1) &&
         (server.sentCommitRequests[server.view][n][peer - 1].length === 0)
