@@ -88,12 +88,14 @@ pbft.server = function(id, peers) {
     viewChangeAttempt: 1,
     highestViewChangeReceived: 0,
     newViewRequestsSent: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
-    acceptedPrePrepares: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
+    acceptedPrePrepares: {},
     acceptedPrepares: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
-    preparedMessagesToCommit: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
+    preparedMessagesToCommit: {},
     receivedCommitRequests: {0: {0: makeArrayOfArrays(pbft.NUM_SERVERS)}},
     queuedClientRequests: [],
     clientMessagesToSend: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
+    prePrepareRequestsSent: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
+    sentPrepareRequests: {},
   };
 };
 
@@ -171,21 +173,36 @@ var getUniqueNumPrepareRequestsReceived = function(peerPrepareRequests) {
   return count;
 };
 
+var getFirstRequest = function(requests) {
+  for (var i = 0; i < requests.length; i++) {
+    if (requests[i].length !== 0) {
+      return requests[i];
+    }
+  }
+  return null;
+}
+
 rules.startCommit = function(model, server) {
   if (server.preparedMessagesToCommit[server.view] == undefined) {
-    server.preparedMessagesToCommit[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    server.preparedMessagesToCommit[server.view] = {};
   }
   if (server.acceptedPrepares[server.view] == undefined) {
-    server.acceptedPrepares[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    server.acceptedPrepares[server.view] = {};
   }
   // TODO: check if 2f + 1 valid prepares received, and add to preparedMessagesToCommit
   if ((server.state !== 'changing-view')) {
-    server.acceptedPrepares[server.view].forEach(function(requests) {
+    Object.entries(server.acceptedPrepares[server.view]).forEach(function([n, requests]) {
+      if (server.preparedMessagesToCommit[server.view][n] == undefined) {
+        server.preparedMessagesToCommit[server.view][n] = [];
+      }
+      if (server.acceptedPrepares[server.view][n] == undefined) {
+        server.acceptedPrepares[server.view][n] = makeArrayOfArrays(pbft.NUM_SERVERS);
+      }
       // This checks the predicate 'prepared' from the paper.
       if ((getUniqueNumPrepareRequestsReceived(requests) ==
            (2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1) &&
-          (server.preparedMessagesToCommit[server.view][getSequenceNumberOfPrepareRequests(requests)].length == 0)) {
-        server.preparedMessagesToCommit[server.view][getSequenceNumberOfPrepareRequests(requests)].push(getFirstRequest(requests));
+          (server.preparedMessagesToCommit[server.view][n].length == 0)) {
+        server.preparedMessagesToCommit[server.view][n].push(getFirstRequest(requests));
       }
     });
   }
@@ -249,14 +266,21 @@ rules.startViewChangeTimeout = function(model, server) {
   }
 };
 
+var hasUnsentPrePrepare = function(sentRequests, peer) {
+  return sentRequests[peer - 1].length == 0;
+}
+
 rules.sendPrePrepare = function(model, server, peer) {
   if (server.clientMessagesToSend[server.view] == undefined) {
     server.clientMessagesToSend[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
   }
+  if (server.prePrepareRequestsSent[server.view] == undefined) {
+    server.prePrepareRequestsSent[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
+  }
   if ((server.state !== 'changing-view') &&
       (server.id == (server.view % pbft.NUM_SERVERS)) &&
-      (server.clientMessagesToSend[server.view][peer].length !== 0) &&
-      (hasUnsentPrePrepare(server.prePrepareRequestsSent[v], peer))) {
+      (server.clientMessagesToSend[server.view][peer - 1].length !== 0) &&
+      (hasUnsentPrePrepare(server.prePrepareRequestsSent[server.view], peer))) {
     var request = {
       from: server.id, // this is `i` described in PBFT paper.
       to: peer,
@@ -266,10 +290,10 @@ rules.sendPrePrepare = function(model, server, peer) {
       d: 0, // TODO: this should create a "digest" based on m
       // We don't care about performance right now so we just attach the
       // client message as a field of the PRE-PREPARE.
-      m: server.clientMessagesToSend[server.view][peer],
+      m: server.clientMessagesToSend[server.view][peer - 1][0],
     };
     server.nextSequenceNumber += 1;
-    server.clientMessagesToSend[server.view][peer].push(request);
+    server.clientMessagesToSend[server.view][peer - 1].push(request);
     sendRequest(model, request);
   }
 };
@@ -345,13 +369,19 @@ rules.becomePrimary = function(model, server) {
 
 rules.sendPrepares = function(model, server, peer) {
   if (server.acceptedPrePrepares[server.view] == undefined) {
-    server.acceptedPrePrepares[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    server.acceptedPrePrepares[server.view] = {};
   }
-  server.acceptedPrePrepares[server.view].forEach(function(requests) {
+  if (server.sentPrepareRequests[server.view] == undefined) {
+    server.sentPrepareRequests[server.view] = {};
+  }
+  Object.entries(server.acceptedPrePrepares[server.view]).forEach(function([n, requests]) {
     console.assert(requests.length <= 1);
+    if (server.sentPrepareRequests[server.view][n] == undefined) {
+      server.sentPrepareRequests[server.view][n] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    }
     if ((server.state != 'changing-view') &&
         (requests.length === 1) &&
-        (server.sentPrepareRequests[server.view][requests[0].n][peer].length === 0)
+        (server.sentPrepareRequests[server.view][n][peer - 1].length === 0)
        ) {
 
       // This should be guaranteed by accessing acceptedPrePrepares by server.view above
@@ -361,24 +391,24 @@ rules.sendPrepares = function(model, server, peer) {
         to: peer,
         type: 'PREPARE',
         v: server.view,
-        n: requests[0].n,
+        n: n,
         d: 0, // TODO: this "digest" should be computed
       };
-      sendRequest(request);
-      server.sentPrepareRequests[server.view][requests[0].n][peer].push(request);
+      sendRequest(model, request);
+      server.sentPrepareRequests[server.view][n][peer - 1].push(request);
     }
   });
 };
 
 rules.sendCommits = function(model, server, peer) {
   if (server.preparedMessagesToCommit[server.view] == undefined) {
-    server.preparedMessagesToCommit[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    server.preparedMessagesToCommit[server.view] = {};
   }
-  server.preparedMessagesToCommit[server.view].forEach(function(requests) {
+  Object.entries(server.preparedMessagesToCommit[server.view]).forEach(function([n, requests]) {
     console.assert(requests.length <= 1);
     if ((server.state != 'changing-view') &&
         (requests.length === 1) &&
-        (server.sentCommitRequests[server.view][requests[0].n][peer].length === 0)
+        (server.sentCommitRequests[server.view][n][peer - 1].length === 0)
        ) {
 
       // This should be guaranteed by accessing acceptedPrePrepares by server.view above
@@ -391,8 +421,8 @@ rules.sendCommits = function(model, server, peer) {
         n: request.n,
         d: 0, // recompute D(m) here, don't use request.d
       };
-      sendRequest(request);
-      server.sentCommitRequests[server.view][requests[0].n][peer].push(request);
+      sendRequest(model, request);
+      server.sentCommitRequests[server.view][n][peer - 1].push(request);
     }
   });
 };
@@ -405,7 +435,10 @@ var handlePrePrepareRequest = function(model, server, request) {
   if (server.state != 'changing-view') {
     // TODO: all these undefined checks should go in their own function e.g. `initializeUndefinedData`
     if (server.acceptedPrePrepares[server.view] == undefined) {
-      server.acceptedPrePrepares[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
+      server.acceptedPrePrepares[server.view] = {};
+    }
+    if (server.acceptedPrePrepares[server.view][request.n] == undefined) {
+      server.acceptedPrePrepares[server.view][request.n] = [];
     }
     server.acceptedPrePrepares[server.view][request.n].push(request);
     // TODO: valdity check on the pushed pre-prepare.
@@ -414,19 +447,22 @@ var handlePrePrepareRequest = function(model, server, request) {
 
 var handlePrepareRequest = function(model, server, request) {
   if (server.acceptedPrepares[server.view] == undefined) {
-    server.acceptedPrepares[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    server.acceptedPrepares[server.view] = {};
+  }
+  if (server.acceptedPrepares[server.view][request.n] == undefined) {
+    server.acceptedPrepares[server.view][request.n] = makeArrayOfArrays(pbft.NUM_SERVERS);
   }
   // TODO: before pushing a pre-prepare, need to check it matches digest already pushed pre-prepare.
   // An array without indexing by sender server id might be a better structure for this.
-  if (server.acceptedPrepares[server.view][request.n][request.from].length !== 0) {
+  if (server.acceptedPrepares[server.view][request.n][request.from - 1].length !== 0) {
     // TODO: check digest of last received pre prepare message against current one.
   }
-  server.acceptedPrepares[server.view][request.n][request.from].push(request);
+  server.acceptedPrepares[server.view][request.n][request.from - 1].push(request);
 };
 
 var handleCommitRequest = function(model, server, request) {
   // TODO: check view of commit against view of server
-  server.receivedCommitRequests[server.view][request.n][request.from].push(request);
+  server.receivedCommitRequests[server.view][request.n][request.from - 1].push(request);
 };
 
 var handleCheckpointRequest = function(model, server, request) {
