@@ -825,57 +825,58 @@ var serverModal = function(model, server) {
   m.modal();
 };
 
-// var messageModal = function(model, message) {
-//   var m = $('#modal-details');
-//   $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
-//   $('.modal-title', m).text(message.type + ' ' + message.direction);
-//   var li = function(label, value) {
-//     return '<dt>' + label + '</dt><dd>' + value + '</dd>';
-//   };
-//   var fields = $('<dl class="dl-horizontal"></dl>')
-//       .append(li('from', 'S' + message.from))
-//       .append(li('to', 'S' + message.to))
-//       .append(li('sent', util.relTime(message.sendTime, model.time)))
-//       .append(li('deliver', util.relTime(message.recvTime, model.time)))
-//       .append(li('view', message.view));
-//   if (message.type == 'RequestVote') {
-//     if (message.direction == 'request') {
-//       fields.append(li('lastLogIndex', message.lastLogIndex));
-//       fields.append(li('lastLogTerm', message.lastLogTerm));
-//     } else {
-//       fields.append(li('granted', message.granted));
-//     }
-//   } else if (message.type == 'AppendEntries') {
-//     if (message.direction == 'request') {
-//       var entries = '[' + message.entries.map(function(e) {
-//             return e.view;
-//       }).join(' ') + ']';
-//       fields.append(li('prevIndex', message.prevIndex));
-//       fields.append(li('prevTerm', message.prevTerm));
-//       fields.append(li('entries', entries));
-//       fields.append(li('commitIndex', message.commitIndex));
-//     } else {
-//       fields.append(li('success', message.success));
-//       fields.append(li('matchIndex', message.matchIndex));
-//     }
-//   }
-//   $('.modal-body', m)
-//     .empty()
-//     .append(fields);
-//   var footer = $('.modal-footer', m);
-//   footer.empty();
-//   messageActions.forEach(function(action) {
-//     footer.append(util.button(action[0])
-//       .click(function(){
-//         state.fork();
-//         action[1](model, message);
-//         state.save();
-//         render.update();
-//         m.modal('hide');
-//       }));
-//   });
-//   m.modal();
-// };
+var messageModal = function(model, message) {
+  var m = $('#modal-details');
+  $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
+  $('.modal-title', m).text(message.type + ' ' + message.direction);
+  var li = function(label, value) {
+    return '<dt>' + label + '</dt><dd>' + value + '</dd>';
+  };
+  var fields = $('<dl class="dl-horizontal"></dl>')
+      .append(li('from', 'S' + message.from))
+      .append(li('to', 'S' + message.to))
+      // .append(li('sent', util.relTime(message.sendTime, model.time)))
+      // .append(li('deliver', util.relTime(message.recvTime, model.time)))
+      .append(li('view', message.v))
+      .append(li('type', message.type));
+  // if (message.type == 'RequestVote') {
+  //   if (message.direction == 'request') {
+  //     fields.append(li('lastLogIndex', message.lastLogIndex));
+  //     fields.append(li('lastLogTerm', message.lastLogTerm));
+  //   } else {
+  //     fields.append(li('granted', message.granted));
+  //   }
+  // } else if (message.type == 'AppendEntries') {
+  //   if (message.direction == 'request') {
+  //     var entries = '[' + message.entries.map(function(e) {
+  //           return e.view;
+  //     }).join(' ') + ']';
+  //     fields.append(li('prevIndex', message.prevIndex));
+  //     fields.append(li('prevTerm', message.prevTerm));
+  //     fields.append(li('entries', entries));
+  //     fields.append(li('commitIndex', message.commitIndex));
+  //   } else {
+  //     fields.append(li('success', message.success));
+  //     fields.append(li('matchIndex', message.matchIndex));
+  //   }
+  // }
+  $('.modal-body', m)
+    .empty()
+    .append(fields);
+  var footer = $('.modal-footer', m);
+  footer.empty();
+  messageActions.forEach(function(action) {
+    footer.append(util.button(action[0])
+      .click(function(){
+        state.fork();
+        action[1](model, message);
+        state.save();
+        render.update();
+        m.modal('hide');
+      }));
+  });
+  m.modal();
+};
 
 // Public variable.
 pbft.render = {};
