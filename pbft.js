@@ -98,6 +98,7 @@ pbft.server = function(id, peers) {
     sentPrepareRequests: {},
     sentCommitRequests: {},
     nextSequenceNumber: 0,
+    pushedLogMessages: {},
   };
 };
 
@@ -202,12 +203,12 @@ rules.startCommit = function(model, server) {
       if (server.acceptedPrepares[server.view][n] == undefined) {
         server.acceptedPrepares[server.view][n] = makeArrayOfArrays(pbft.NUM_SERVERS);
       }
-      // This checks the predicate 'prepared' from the paper.
+      // This checks the predicate 'prepared' from the paper. Only 2f prepares are needed (not 2f + 1).
       if ((getUniqueNumPrepareRequestsReceived(requests) ==
-           (2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1) &&
+           (2 * NUM_TOLERATED_BYZANTINE_FAULTS)) &&
           (server.preparedMessagesToCommit[server.view][n].length == 0)) {
-        console.log("added to preparedMessagesToCommit" + server.view + " " + n);
-        server.preparedMessagesToCommit[server.view][n].push(getFirstRequest(requests));
+        console.log("added to preparedMessagesToCommit " + server.view + " " + n);
+        server.preparedMessagesToCommit[server.view][n].push(getFirstRequest(requests)[0]);
       }
     }
   }
@@ -221,7 +222,7 @@ var getUniqueNumCommitRequestsReceived = function(peerCommitRequests) {
   peerCommitRequests.forEach(function(requests) {
     // TODO: this should be a validity check
     if (requests.length !== 0 &&
-        requests[0].type == 'VIEW-CHANGE') {
+        requests[0].type == 'COMMIT') {
       count += 1;
     }
   }, count);
@@ -232,15 +233,24 @@ rules.addCommitsToLog = function(model, server) {
   if (server.receivedCommitRequests[server.view] == undefined) {
     server.receivedCommitRequests[server.view] = {}
   }
+  if (server.pushedLogMessages[server.view] == undefined) {
+    server.pushedLogMessages[server.view] = {}
+  }
   Object.keys(server.receivedCommitRequests[server.view]).forEach(function(n) {
     if (server.receivedCommitRequests[server.view][n] == undefined) {
       server.receivedCommitRequests[server.view][n] = makeArrayOfArrays(pbft.NUM_SERVERS);
     }
-    if ((getUniqueNumCommitRequestsReceived(server.receivedCommitRequests[server.view][n]) ===
-        (2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1) &&
-        (pushedLogMessages[server.view][n].length == 0)) {
-      console.log("logging: " + server.receivedCommitRequests[server.view][n].v + "," + n);
-      log.push(server.receivedCommitRequests[server.view][n].v + "," + n);
+    if (server.pushedLogMessages[server.view][n] == undefined) {
+      server.pushedLogMessages[server.view][n] = [];
+    }
+    if ((getUniqueNumCommitRequestsReceived(server.receivedCommitRequests[server.view][n]) ==
+         (2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1) &&
+        (server.pushedLogMessages[server.view][n].length == 0)) {
+      var rq = getFirstRequest(server.receivedCommitRequests[server.view][n])[0];
+      var msg = rq.v + "," + rq.n;
+      console.log("logging: " + msg);
+      server.log.push(msg);
+      server.pushedLogMessages[server.view][n].push(msg);
     }
   });
 };
@@ -425,7 +435,6 @@ rules.sendCommits = function(model, server, peer) {
         (requests.length === 1) &&
         (server.sentCommitRequests[server.view][n][peer - 1].length === 0)
        ) {
-         console.log("sending commit msg");
       var request = {
         from: server.id,
         to: peer,
@@ -434,6 +443,7 @@ rules.sendCommits = function(model, server, peer) {
         n: n,
         d: 0, // recompute D(m) here, don't use request.d
       };
+      console.log("sending commit msg " + request.v + " " + request.n + " " + n);
       sendRequest(model, request);
       server.sentCommitRequests[server.view][n][peer - 1].push(request);
     }
@@ -482,6 +492,7 @@ var handleCommitRequest = function(model, server, request) {
   if (server.receivedCommitRequests[request.v][request.n] == undefined) {
     server.receivedCommitRequests[request.v][request.n] = makeArrayOfArrays(pbft.NUM_SERVERS);
   }
+  console.log("received commit request " + request.v + " " + request.n + " " + (request.from - 1));
   server.receivedCommitRequests[request.v][request.n][request.from - 1].push(request);
 };
 
@@ -1084,28 +1095,13 @@ pbft.render.logs = function(svg) {
           .attr(logEntrySpec(index))
           .attr('class', 'log'));
     }
-    // server.log.forEach(function(entry, i) {
-    //   var index = i + 1;
-    //     log.append(pbft.render.entry(
-    //          logEntrySpec(index),
-    //          entry,
-    //          index <= server.commitIndex));
-    // });
-    // if (leader !== null && leader != server) {
-    //   log.append(
-    //     util.SVG('circle')
-    //       .attr('title', 'match index')//.tooltip({container: 'body'})
-    //       .attr({cx: logEntrySpec(leader.matchIndex[server.id] + 1).x,
-    //              cy: logSpec.y + logSpec.height,
-    //              r: 5}));
-    //   var x = logEntrySpec(leader.nextIndex[server.id] + 0.5).x;
-    //   log.append(util.SVG('path')
-    //     .attr('title', 'next index')//.tooltip({container: 'body'})
-    //     .attr('style', 'marker-end:url(#TriangleOutM); stroke: black')
-    //     .attr('d', ['M', x, comma, logSpec.y + logSpec.height + logSpec.height/3,
-    //                 'L', x, comma, logSpec.y + logSpec.height + logSpec.height/6].join(' '))
-    //     .attr('stroke-width', 3));
-    // }
+    server.log.forEach(function(entry, i) {
+      var index = i + 1;
+        log.append(pbft.render.entry(
+             logEntrySpec(index),
+             entry,
+             index <= server.nextSequenceNumber));
+    });
   });
 };
 
