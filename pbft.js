@@ -91,12 +91,13 @@ pbft.server = function(id, peers) {
     acceptedPrePrepares: {},
     acceptedPrepares: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
     preparedMessagesToCommit: {},
-    receivedCommitRequests: {0: {0: makeArrayOfArrays(pbft.NUM_SERVERS)}},
+    receivedCommitRequests: {},
     queuedClientRequests: [],
     clientMessagesToSend: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
     prePrepareRequestsSent: {0: makeArrayOfArrays(pbft.NUM_SERVERS)},
     sentPrepareRequests: {},
     sentCommitRequests: {},
+    nextSequenceNumber: 0,
   };
 };
 
@@ -192,7 +193,9 @@ rules.startCommit = function(model, server) {
   }
   // TODO: check if 2f + 1 valid prepares received, and add to preparedMessagesToCommit
   if ((server.state !== 'changing-view')) {
-    Object.entries(server.acceptedPrepares[server.view]).forEach(function([n, requests]) {
+    for (let [n, requests] of Object.entries(server.acceptedPrepares[server.view])) {
+      // console.log("here " + getUniqueNumPrepareRequestsReceived(requests));
+      // console.log(requests);
       if (server.preparedMessagesToCommit[server.view][n] == undefined) {
         server.preparedMessagesToCommit[server.view][n] = [];
       }
@@ -203,9 +206,10 @@ rules.startCommit = function(model, server) {
       if ((getUniqueNumPrepareRequestsReceived(requests) ==
            (2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1) &&
           (server.preparedMessagesToCommit[server.view][n].length == 0)) {
+        console.log("added to preparedMessagesToCommit" + server.view + " " + n);
         server.preparedMessagesToCommit[server.view][n].push(getFirstRequest(requests));
       }
-    });
+    }
   }
 };
 
@@ -226,9 +230,12 @@ var getUniqueNumCommitRequestsReceived = function(peerCommitRequests) {
 
 rules.addCommitsToLog = function(model, server) {
   if (server.receivedCommitRequests[server.view] == undefined) {
-    server.receivedCommitRequests[server.view] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    server.receivedCommitRequests[server.view] = {}
   }
   Object.keys(server.receivedCommitRequests[server.view]).forEach(function(n) {
+    if (server.receivedCommitRequests[server.view][n] == undefined) {
+      server.receivedCommitRequests[server.view][n] = makeArrayOfArrays(pbft.NUM_SERVERS);
+    }
     if ((getUniqueNumCommitRequestsReceived(server.receivedCommitRequests[server.view][n]) ===
         (2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1) &&
         (pushedLogMessages[server.view][n].length == 0)) {
@@ -294,8 +301,6 @@ rules.sendPrePrepare = function(model, server, peer) {
       // client message as a field of the PRE-PREPARE.
       m: server.clientMessagesToSend[server.view][peer - 1][0],
     };
-    server.nextSequenceNumber += 1;
-    server.clientMessagesToSend[server.view][peer - 1].push(request);
     server.prePrepareRequestsSent[server.view][peer - 1].push(request);
     sendRequest(model, request);
   }
@@ -377,7 +382,7 @@ rules.sendPrepares = function(model, server, peer) {
   if (server.sentPrepareRequests[server.view] == undefined) {
     server.sentPrepareRequests[server.view] = {};
   }
-  Object.entries(server.acceptedPrePrepares[server.view]).forEach(function([n, requests]) {
+  for (let [n, requests] of Object.entries(server.acceptedPrePrepares[server.view])) {
     console.assert(requests.length <= 1);
     if (server.sentPrepareRequests[server.view][n] == undefined) {
       server.sentPrepareRequests[server.view][n] = makeArrayOfArrays(pbft.NUM_SERVERS);
@@ -401,7 +406,7 @@ rules.sendPrepares = function(model, server, peer) {
       sendRequest(model, request);
       server.sentPrepareRequests[server.view][n][peer - 1].push(request);
     }
-  });
+  }
 };
 
 rules.sendCommits = function(model, server, peer) {
@@ -411,7 +416,7 @@ rules.sendCommits = function(model, server, peer) {
   if (server.sentCommitRequests[server.view] == undefined) {
     server.sentCommitRequests[server.view] = {};
   }
-  Object.entries(server.preparedMessagesToCommit[server.view]).forEach(function([n, requests]) {
+  for (let [n, requests] of Object.entries(server.preparedMessagesToCommit[server.view])) {
     console.assert(requests.length <= 1);
     if (server.sentCommitRequests[server.view][n] == undefined) {
       server.sentCommitRequests[server.view][n] = makeArrayOfArrays(pbft.NUM_SERVERS);
@@ -420,6 +425,7 @@ rules.sendCommits = function(model, server, peer) {
         (requests.length === 1) &&
         (server.sentCommitRequests[server.view][n][peer - 1].length === 0)
        ) {
+         console.log("sending commit msg");
       var request = {
         from: server.id,
         to: peer,
@@ -431,7 +437,7 @@ rules.sendCommits = function(model, server, peer) {
       sendRequest(model, request);
       server.sentCommitRequests[server.view][n][peer - 1].push(request);
     }
-  });
+  }
 };
 
 var handlePrePrepareRequest = function(model, server, request) {
@@ -464,6 +470,7 @@ var handlePrepareRequest = function(model, server, request) {
   if (server.acceptedPrepares[request.v][request.n][request.from - 1].length !== 0) {
     // TODO: check digest of last received pre prepare message against current one.
   }
+  console.log("accepting prepare " + request.v + " " + request.n + " " + request.from);
   server.acceptedPrepares[request.v][request.n][request.from - 1].push(request);
 };
 
