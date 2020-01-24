@@ -232,6 +232,7 @@ rules.addCommitsToLog = function(model, server) {
     if ((getUniqueNumCommitRequestsReceived(server.receivedCommitRequests[server.view][n]) ===
         (2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1) &&
         (pushedLogMessages[server.view][n].length == 0)) {
+      console.log("logging: " + server.receivedCommitRequests[server.view][n].v + "," + n);
       log.push(server.receivedCommitRequests[server.view][n].v + "," + n);
     }
   });
@@ -387,6 +388,7 @@ rules.sendPrepares = function(model, server, peer) {
        ) {
 
       // This should be guaranteed by accessing acceptedPrePrepares by server.view above
+      // Pre-prepares and prepares must occur within the same view.
       console.assert(server.view === requests[0].v);
       var request = {
         from: server.id, // same as 'i' in the paper.
@@ -418,15 +420,12 @@ rules.sendCommits = function(model, server, peer) {
         (requests.length === 1) &&
         (server.sentCommitRequests[server.view][n][peer - 1].length === 0)
        ) {
-
-      // This should be guaranteed by accessing acceptedPrePrepares by server.view above
-      console.assert(server.view === requests[0].v);
       var request = {
         from: server.id,
         to: peer,
         type: 'COMMIT',
         v: server.view,
-        n: request.n,
+        n: n,
         d: 0, // recompute D(m) here, don't use request.d
       };
       sendRequest(model, request);
@@ -442,35 +441,41 @@ var handlePrePrepareRequest = function(model, server, request) {
   // TODO: watermark and digest
   if (server.state != 'changing-view') {
     // TODO: all these undefined checks should go in their own function e.g. `initializeUndefinedData`
-    if (server.acceptedPrePrepares[server.view] == undefined) {
-      server.acceptedPrePrepares[server.view] = {};
+    if (server.acceptedPrePrepares[request.v] == undefined) {
+      server.acceptedPrePrepares[request.v] = {};
     }
-    if (server.acceptedPrePrepares[server.view][request.n] == undefined) {
-      server.acceptedPrePrepares[server.view][request.n] = [];
+    if (server.acceptedPrePrepares[request.v][request.n] == undefined) {
+      server.acceptedPrePrepares[request.v][request.n] = [];
     }
-    server.acceptedPrePrepares[server.view][request.n].push(request);
+    server.acceptedPrePrepares[request.v][request.n].push(request);
     // TODO: valdity check on the pushed pre-prepare.
   }
 };
 
 var handlePrepareRequest = function(model, server, request) {
-  if (server.acceptedPrepares[server.view] == undefined) {
-    server.acceptedPrepares[server.view] = {};
+  if (server.acceptedPrepares[request.v] == undefined) {
+    server.acceptedPrepares[request.v] = {};
   }
-  if (server.acceptedPrepares[server.view][request.n] == undefined) {
-    server.acceptedPrepares[server.view][request.n] = makeArrayOfArrays(pbft.NUM_SERVERS);
+  if (server.acceptedPrepares[request.v][request.n] == undefined) {
+    server.acceptedPrepares[request.v][request.n] = makeArrayOfArrays(pbft.NUM_SERVERS);
   }
   // TODO: before pushing a pre-prepare, need to check it matches digest already pushed pre-prepare.
   // An array without indexing by sender server id might be a better structure for this.
-  if (server.acceptedPrepares[server.view][request.n][request.from - 1].length !== 0) {
+  if (server.acceptedPrepares[request.v][request.n][request.from - 1].length !== 0) {
     // TODO: check digest of last received pre prepare message against current one.
   }
-  server.acceptedPrepares[server.view][request.n][request.from - 1].push(request);
+  server.acceptedPrepares[request.v][request.n][request.from - 1].push(request);
 };
 
 var handleCommitRequest = function(model, server, request) {
   // TODO: check view of commit against view of server
-  server.receivedCommitRequests[server.view][request.n][request.from - 1].push(request);
+  if (server.receivedCommitRequests[request.v] == undefined) {
+    server.receivedCommitRequests[request.v] = {};
+  }
+  if (server.receivedCommitRequests[request.v][request.n] == undefined) {
+    server.receivedCommitRequests[request.v][request.n] = makeArrayOfArrays(pbft.NUM_SERVERS);
+  }
+  server.receivedCommitRequests[request.v][request.n][request.from - 1].push(request);
 };
 
 var handleCheckpointRequest = function(model, server, request) {
