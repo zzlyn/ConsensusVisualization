@@ -21,6 +21,8 @@ paxos.NUM_LEARNERS = 1;
 // Public Variable.
 paxos.NUM_SERVERS = paxos.NUM_CLIENTS + paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS + paxos.NUM_LEARNERS;
 
+
+
 // Use these utils to identify server state.
 const SERVER_STATE = {
   CLIENT: 'client',
@@ -152,6 +154,7 @@ paxos.server = function(id, peers) {
     // For WAIT_ACCEPTED phase.
     serverAttrs.grantedAccepts = 0;
     serverAttrs.proposeValue = null;
+    serverAttrs.timeoutClock = 0;
   }
 
   // Acceptor Specific Attributes.
@@ -166,7 +169,7 @@ paxos.server = function(id, peers) {
   
   // Learner Specific Attributes.
   if (serverAttrs.state === SERVER_STATE.LEARNER) {
-    serverAttrs.acceptedLog = {};
+    serverAttrs.voteLog = {};
     serverAttrs.learnedValue = null;
   }
 
@@ -175,14 +178,36 @@ paxos.server = function(id, peers) {
 
 var MIN_RPC_LATENCY = 10000;
 var MAX_RPC_LATENCY = 15000;
-var BATCH_SIZE = 1;
 
-var sendMessage = function(model, message) {
+var sendMessageNormal = function(model, message){
   message.sendTime = model.time;
   message.recvTime = model.time +
                      MIN_RPC_LATENCY +
                      Math.random() * (MAX_RPC_LATENCY - MIN_RPC_LATENCY);
   model.messages.push(message);
+}
+
+var PROPOSER_TIMEOUT = 40000;
+var MIN_LATENCY = 15000;
+var liveLockDelay = 80000;
+
+var sendMessageLocked = function(model, message) {
+  message.sendTime = model.time;
+  message.recvTime = model.time +
+                     MIN_LATENCY +
+                     Math.random() * 0.1 * MIN_LATENCY;
+  if(model.liveLock && message.type == MESSAGE_TYPE.PROMISE){
+    message.recvTime += liveLockDelay;
+  }
+  model.messages.push(message);
+};
+
+var sendMessage = function(model, message) {
+  if (model.liveLock) {
+    sendMessageLocked(model, message);
+  } else {
+    sendMessageNormal(model, message);
+  }
 };
 
 var sendRequest = function(model, request) {
@@ -239,7 +264,7 @@ paxos.sendClientRequest = function(model, server, proposer) {
     from: clientId,
     to: proposer.id,
     type: MESSAGE_TYPE.CLIENT_RQ,
-    term: proposingTerm,
+    term: parseInt(proposingTerm),
     value: proposingValue,
   });
 };
@@ -347,6 +372,25 @@ var resetProposer = function(server) {
 }
 
 var handleProposerUpdate = function(model, server) {
+  if(server.timeoutClock <= model.time && server.phase === PROPOSER_PHASE.WAIT_ACCEPTED){//timed out
+    server.term += 2;
+    server.peers.forEach(function(peer) {
+      if (serverIdToState(peer) !== SERVER_STATE.ACCEPTOR) {
+        return; // Only propose to acceptors.
+      }
+      sendRequest(model, {
+        from: server.id,
+        to: peer,
+        type: MESSAGE_TYPE.PREPARE,
+        term: server.term,
+      });
+    });
+    server.grantedPromises = 0;
+    //for debugging livelock feature
+    //server.timeoutClock = PROPOSER_TIMEOUT + model.time;
+    server.phase = PROPOSER_PHASE.WAIT_PROMISE;
+    return;
+  }
   // Prepare phase.
   if (server.phase === PROPOSER_PHASE.SEND_PREPARE) {
     server.peers.forEach(function(peer) {
@@ -359,6 +403,8 @@ var handleProposerUpdate = function(model, server) {
         type: MESSAGE_TYPE.PREPARE,
         term: server.term,
       });
+      //for debugging livelock feature
+      //server.timeoutClock = PROPOSER_TIMEOUT + model.time;
     });
     server.phase = PROPOSER_PHASE.WAIT_PROMISE;  // Enter next phase.
     // Used to compare & choose the largest accepted value to
@@ -390,12 +436,14 @@ var handleProposerUpdate = function(model, server) {
         });
       });
       server.phase = PROPOSER_PHASE.WAIT_ACCEPTED;
+      server.timeoutClock = PROPOSER_TIMEOUT + model.time;
     }
   }
 
   // Accpet phase. Waiting on quorum of accepted replies for reset.
   if (server.phase === PROPOSER_PHASE.WAIT_ACCEPTED) {
     if (server.grantedAccepts > paxos.NUM_ACCEPTORS / 2) {
+      server.timeoutClock = model.time;
       resetProposer(server);
     }
   }
@@ -479,22 +527,22 @@ var handleMessageAcceptor = function(model, server, message) {
 /* End acceptor implementation. */
 
 var handleMessageLearner = function(model, server, message) {
-  // Already decided one value in this round of Paxos.
   if (server.learnedValue !== null) {
     return;
   }
+  // Already decided one value in this round of Paxos.
   if (message.type == MESSAGE_TYPE.ACCEPTED) {
     var key = [message.term, message.value];
-    if(server.acceptedLog[key] == undefined){
-      server.acceptedLog[key] = 1;
+    if(server.voteLog[key] == undefined){
+      server.voteLog[key] = 1;
     } else {
-      server.acceptedLog[key] += 1; 
+      server.voteLog[key] += 1; 
     }
-    if(server.acceptedLog[key] > paxos.NUM_ACCEPTORS /2){
+    if(server.voteLog[key] > paxos.NUM_ACCEPTORS /2){
       //majority of accepted message received.
       server.learnedValue = message.value;
       server.term = message.term;
-      server.acceptedLog = {};
+      server.voteLog = {};
       sendMessage(model, {
         from: message.to,
         to: util.groupServers(state.current)[0][0].id,
@@ -606,6 +654,18 @@ paxos.clientRequest = function(modal, server) {
 var ARC_WIDTH = 5;
 
 var comma = ',';
+
+var arcSpec = function(spec, fraction) {
+  var radius = spec.r + ARC_WIDTH/2;
+  var end = util.circleCoord(fraction, spec.cx, spec.cy, radius);
+  var s = ['M', spec.cx, comma, spec.cy - radius];
+  if (fraction > 0.5) {
+    s.push('A', radius, comma, radius, '0 0,1', spec.cx, spec.cy + radius);
+    s.push('M', spec.cx, comma, spec.cy + radius);
+  }
+  s.push('A', radius, comma, radius, '0 0,1', end.x, end.y);
+  return s.join(' ');
+};
 
 var logsSpec = {
   x: 430,
@@ -892,6 +952,13 @@ paxos.render.ring = function(svg) {
 paxos.render.servers = function(serversSame, svg) {
   state.current.servers.forEach(function(server) {
     var serverNode = $('#server-' + server.id, svg);
+    if(server.state == SERVER_STATE.PROPOSER){
+      $('path', serverNode)
+      .attr('d', arcSpec(serverSpec(server.id,state.current),
+        util.clamp((server.timeoutClock - state.current.time) /
+                    (PROPOSER_TIMEOUT),
+                    0, 1)));
+    }
     if (!serversSame) {
       $('text.term', serverNode).text(server.term);
       serverNode.attr('class', 'server ' + server.state);
@@ -967,6 +1034,8 @@ paxos.appendServerInfo = function(state, svg) {
                     .attr('class', 'background')
                     .attr(s))
                     .attr('fill', serverIdToColor(server.id))
+          .append(util.SVG('path')
+                    .attr('style', 'stroke-width: ' + ARC_WIDTH))
           .append(util.SVG('text')
                     .attr('class', 'term')
                     .attr({x: s.cx, y: s.cy}))

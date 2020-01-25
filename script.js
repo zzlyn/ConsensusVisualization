@@ -42,6 +42,11 @@ util.activate = function () {
     messages: [],
   });
 
+  //if true add delay to promise message in order to simulate livelock
+  if(protocol == paxos){
+    state.current.liveLock = false;
+  }
+
   var sliding = false;
 
   playback = function () {
@@ -154,13 +159,13 @@ util.activate = function () {
     render.clock();
     render.servers(serversSame, svg);
     render.messages(messagesSame, svg);
-    if (!serversSame){
-      if(activeProtocol == 'paxos'){
+    if (!serversSame) {
+      if (activeProtocol == 'paxos') {
 
-      } else{
+      } else {
         render.logs(svg);
       }
-      
+
     }
   };
 
@@ -193,14 +198,15 @@ util.activate = function () {
     if ($('.modal').hasClass('in')) {
       return;
     }
-    if (e.target.id == "title"){
+    if (e.target.id == "title") {
       return;
     }
-    if (protocol == raft){
-      var leader = protocol.getLeader();
+    var leader = null;
+    if (protocol == raft) {
+      leader = protocol.getLeader();
     }
     if (e.keyCode == ' '.charCodeAt(0) ||
-      e.keyCode == 190 ) {// dot, emitted by Logitech remote
+      e.keyCode == 190) {// dot, emitted by Logitech remote
       $('.modal').modal('hide');
       playback.toggle();
     } else if (e.keyCode == 'C'.charCodeAt(0)) {
@@ -267,6 +273,16 @@ util.activate = function () {
       state.save();
       render.update();
       $('#modal-help').modal('hide');
+    } else if (e.keyCode == 'X'.charCodeAt(0)) {
+      if (protocol == paxos) {
+        state.current.liveLock = !state.current.liveLock;
+        var lock = document.getElementById("lock-icon");
+        if (lock.style.display === "none") {
+          lock.style.display = "block";
+        } else {
+          lock.style.display = "none";
+        }
+      }
     }
   });
 
