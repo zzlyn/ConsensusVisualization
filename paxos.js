@@ -441,6 +441,7 @@ var handleProposerUpdate = function(model, server) {
   // Accpet phase. Waiting on quorum of accepted replies for reset.
   if (server.phase === PROPOSER_PHASE.WAIT_ACCEPTED) {
     if (server.grantedAccepts > paxos.NUM_ACCEPTORS / 2) {
+      server.timeoutClock = model.time;
       resetProposer(server);
     }
   }

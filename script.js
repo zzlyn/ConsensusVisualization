@@ -199,8 +199,9 @@ util.activate = function () {
     if (e.target.id == "title"){
       return;
     }
+    var leader = null;
     if (protocol == raft){
-      var leader = protocol.getLeader();
+      leader = protocol.getLeader();
     }
     if (e.keyCode == ' '.charCodeAt(0) ||
       e.keyCode == 190 ) {// dot, emitted by Logitech remote
