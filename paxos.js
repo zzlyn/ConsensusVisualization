@@ -386,6 +386,7 @@ var handleProposerUpdate = function(model, server) {
       });
     });
     server.grantedPromises = 0;
+    //for debugging livelock feature
     //server.timeoutClock = PROPOSER_TIMEOUT + model.time;
     server.phase = PROPOSER_PHASE.WAIT_PROMISE;
     return;
@@ -402,6 +403,7 @@ var handleProposerUpdate = function(model, server) {
         type: MESSAGE_TYPE.PREPARE,
         term: server.term,
       });
+      //for debugging livelock feature
       //server.timeoutClock = PROPOSER_TIMEOUT + model.time;
     });
     server.phase = PROPOSER_PHASE.WAIT_PROMISE;  // Enter next phase.
