@@ -276,21 +276,12 @@ util.activate = function () {
       } else {
         state.current.liveLock = true;
       }
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> [Paxos] added an indicator below speed to indicated whether livelock mode is activated
       var lock = document.getElementById("lock-icon");
       if (lock.style.display === "none") {
         lock.style.display = "block";
       } else {
         lock.style.display = "none";
       }
-<<<<<<< HEAD
-=======
->>>>>>> [Paxos] configured shortcut X to set livelock option to be true
-=======
->>>>>>> [Paxos] added an indicator below speed to indicated whether livelock mode is activated
     }
   });
 
