@@ -180,7 +180,15 @@ paxos.server = function(id, peers) {
   return serverAttrs;
 };
 
-var sendMessage = function(model, message) {
+var sendMessageNormal = function(model, message){
+  message.sendTime = model.time;
+  message.recvTime = model.time +
+                     MIN_RPC_LATENCY +
+                     Math.random() * (MAX_RPC_LATENCY - MIN_RPC_LATENCY);
+  model.messages.push(message);
+}
+
+var sendMessageLocked = function(model, message) {
   message.sendTime = model.time;
   message.recvTime = model.time +
                      MIN_LATENCY +
@@ -189,6 +197,14 @@ var sendMessage = function(model, message) {
     message.recvTime += liveLockDelay;
   }
   model.messages.push(message);
+};
+
+var sendMessage = function(model, message) {
+  if (model.liveLock) {
+    sendMessageLocked(model, message);
+  } else {
+    sendMessageNormal(model, message);
+  }
 };
 
 var sendRequest = function(model, request) {
