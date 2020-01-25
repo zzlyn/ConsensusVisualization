@@ -157,13 +157,13 @@ util.activate = function () {
     render.clock();
     render.servers(serversSame, svg);
     render.messages(messagesSame, svg);
-    if (!serversSame){
-      if(activeProtocol == 'paxos'){
+    if (!serversSame) {
+      if (activeProtocol == 'paxos') {
 
-      } else{
+      } else {
         render.logs(svg);
       }
-      
+
     }
   };
 
@@ -196,15 +196,15 @@ util.activate = function () {
     if ($('.modal').hasClass('in')) {
       return;
     }
-    if (e.target.id == "title"){
+    if (e.target.id == "title") {
       return;
     }
     var leader = null;
-    if (protocol == raft){
+    if (protocol == raft) {
       leader = protocol.getLeader();
     }
     if (e.keyCode == ' '.charCodeAt(0) ||
-      e.keyCode == 190 ) {// dot, emitted by Logitech remote
+      e.keyCode == 190) {// dot, emitted by Logitech remote
       $('.modal').modal('hide');
       playback.toggle();
     } else if (e.keyCode == 'C'.charCodeAt(0)) {
@@ -272,17 +272,16 @@ util.activate = function () {
       render.update();
       $('#modal-help').modal('hide');
     } else if (e.keyCode == 'X'.charCodeAt(0)) {
-      if(state.current.liveLock){
-        state.current.liveLock = false;
-      } else {
-        state.current.liveLock = true;
+      if (protocol == paxos) {
+        state.current.liveLock = !state.current.liveLock;
+        var lock = document.getElementById("lock-icon");
+        if (lock.style.display === "none") {
+          lock.style.display = "block";
+        } else {
+          lock.style.display = "none";
+        }
       }
-      var lock = document.getElementById("lock-icon");
-      if (lock.style.display === "none") {
-        lock.style.display = "block";
-      } else {
-        lock.style.display = "none";
-      }
+
     }
   });
 
