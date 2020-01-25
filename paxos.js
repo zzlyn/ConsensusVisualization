@@ -527,6 +527,9 @@ var handleMessageAcceptor = function(model, server, message) {
 /* End acceptor implementation. */
 
 var handleMessageLearner = function(model, server, message) {
+  if (server.learnedValue !== null) {
+    return;
+  }
   // Already decided one value in this round of Paxos.
   if (message.type == MESSAGE_TYPE.ACCEPTED) {
     var key = [message.term, message.value];
