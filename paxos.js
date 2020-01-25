@@ -21,11 +21,7 @@ paxos.NUM_LEARNERS = 1;
 // Public Variable.
 paxos.NUM_SERVERS = paxos.NUM_CLIENTS + paxos.NUM_PROPOSERS + paxos.NUM_ACCEPTORS + paxos.NUM_LEARNERS;
 
-var PROPOSER_TIMEOUT = 40000;
 
-var MIN_LATENCY = 15000;
-
-var liveLockDelay = 80000;
 
 // Use these utils to identify server state.
 const SERVER_STATE = {
@@ -180,6 +176,9 @@ paxos.server = function(id, peers) {
   return serverAttrs;
 };
 
+var MIN_RPC_LATENCY = 10000;
+var MAX_RPC_LATENCY = 15000;
+
 var sendMessageNormal = function(model, message){
   message.sendTime = model.time;
   message.recvTime = model.time +
@@ -187,6 +186,10 @@ var sendMessageNormal = function(model, message){
                      Math.random() * (MAX_RPC_LATENCY - MIN_RPC_LATENCY);
   model.messages.push(message);
 }
+
+var PROPOSER_TIMEOUT = 40000;
+var MIN_LATENCY = 15000;
+var liveLockDelay = 80000;
 
 var sendMessageLocked = function(model, message) {
   message.sendTime = model.time;
