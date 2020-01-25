@@ -283,7 +283,6 @@ util.activate = function () {
           lock.style.display = "none";
         }
       }
-
     }
   });
 
