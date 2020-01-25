@@ -43,7 +43,9 @@ util.activate = function () {
   });
 
   //if true add delay to promise message in order to simulate livelock
-  state.current.liveLock = false;
+  if(protocol == paxos){
+    state.current.liveLock = false;
+  }
 
   var sliding = false;
 
