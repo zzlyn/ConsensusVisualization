@@ -726,12 +726,17 @@ var columnSpec = {
 };
 
 var serverSpec = function(id,model) {
-  /*var coord = util.verticalCoord(model.servers[id-1].state,util.serverIdtoNumInGroup(id,model),
-                                 columnSpec.xGap,columnSpec.yGap,columnSpec.cx,columnSpec.cy,
-                                 paxos.NUM_PROPOSERS,paxos.NUM_ACCEPTORS,paxos.NUM_LEARNERS);*/
 
-  var coord = util.paxosLayoutCoord((id-2) / (paxos.NUM_SERVERS - paxos.NUM_CLIENTS), model.servers[id-1].state,
+  // change layout based on layoutToggle fields
+  if (model.layoutToggle) {
+    var coord = util.verticalCoord(model.servers[id-1].state,util.serverIdtoNumInGroup(id,model),
+                                 columnSpec.xGap,columnSpec.yGap,columnSpec.cx,columnSpec.cy,
+                                 paxos.NUM_PROPOSERS,paxos.NUM_ACCEPTORS,paxos.NUM_LEARNERS);
+  }
+  else {
+    var coord = util.paxosLayoutCoord((id-2) / (paxos.NUM_SERVERS - paxos.NUM_CLIENTS), model.servers[id-1].state,
                                ringSpec.cx, ringSpec.cy, ringSpec.r);
+  }
 
   return {
     cx: coord.x,
@@ -1081,6 +1086,42 @@ paxos.appendServerInfo = function(state, svg) {
                     .attr('class', 'term')
                     .attr({x: s.cx, y: s.cy}))
           ));
+
+    //console.log($('#servers', svg));
+    //debugger;
+  });
+}
+
+// update Paxos layout on new server coordinates
+paxos.updateServerLayoutInfo = function(state, svg) {
+  debugger;
+  state.current.servers.forEach(function(server) {
+    var newSpecs = serverSpec(server.id,state.current);
+        
+    // new inner HTML code
+    var newHTML = util.SVG('g')
+        .attr('id', 'server-' + server.id)
+        .attr('class', 'server')
+        .append(util.SVG('text')
+                  .attr('class', 'serverid')
+                  .text(serverIdToText(server.id))
+                  .attr({x: newSpecs.cx, y: newSpecs.cy - 40}))
+        .append(util.SVG('a')
+          .append(util.SVG('circle')
+                    .attr('class', 'background')
+                    .attr(newSpecs))
+                    .attr('fill', serverIdToColor(server.id))
+          .append(util.SVG('text')
+                    .attr('class', 'term')
+                    .attr({x: newSpecs.cx, y: newSpecs.cy}))
+          );
+    
+    //$('#servers', svg) = {};
+    var svgObj = $('#servers', svg);
+    delete svgObj[0];
+    delete svgObj['context'];
+    delete svgObj['length'];
+    svgObj.append(newHTML);
   });
 }
 

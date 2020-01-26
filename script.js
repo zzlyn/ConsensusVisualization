@@ -112,6 +112,11 @@ util.activate = function () {
     render.ring(svg);
   }
 
+  //tracks current layout for paxos only (true = Column wise, false = Circular wise)
+  if (activeProtocol == 'paxos') {//layout changes only for paxos
+    state.current.layoutToggle = false;
+  }
+
 
   protocol.appendServerInfo(state, svg);
 
@@ -264,6 +269,27 @@ util.activate = function () {
       state.save();
       render.update();
       $('#modal-help').modal('hide');
+    } // M to toggle between two different Paxos layouts
+    else if (e.keyCode == 'M'.charCodeAt(0)) {
+      // TOGGLE BETWEEN VIEW LAYOUT FOR PAXOS
+      if (activeProtocol != 'paxos') {
+        //do nothing
+      }
+
+      //util.resetStates(state.current);
+
+      state.current.layoutToggle = !state.current.layoutToggle;
+      util.activate();
+      //protocol.updateServerLayoutInfo(state, svg);
+      // MIGHT NEED TO FORCE RESET HERE WHEN LAYOUT CHANGES
+
+      // folowing code is for some visual signal showing current active layout
+      /*var lock = document.getElementById("lock-icon");
+      if (lock.style.display === "none") {
+        lock.style.display = "block";
+      } else {
+        lock.style.display = "none";
+      }*/
     }
   });
 
