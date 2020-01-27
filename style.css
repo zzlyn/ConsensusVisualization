@@ -119,6 +119,11 @@ svg .message.accept_msg {
   stroke: #FF0000;
 }
 
+svg .message.nack {
+  fill:   #000000; /*black*/
+  stroke: #000000;
+}
+
 svg .message.accepted_msg {
   fill:   #FFA500; /*orange*/
   stroke: #FFA500;

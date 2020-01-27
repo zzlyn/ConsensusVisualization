@@ -38,6 +38,7 @@ const MESSAGE_TYPE = {
   PREPARE: 'prepare_msg',
   PROMISE: 'promise_msg',
   ACCEPT: 'accept_msg',
+  NACK: 'nack',
   ACCEPTED: 'accepted_msg',
 }
 
@@ -57,6 +58,9 @@ var messageTypeToText = function(type) {
 
     case MESSAGE_TYPE.ACCEPT:
       return "Accept";
+
+    case MESSAGE_TYPE.NACK:
+      return "Nack";
 
     case MESSAGE_TYPE.ACCEPTED:
       return "Accepted";
@@ -153,6 +157,7 @@ paxos.server = function(id, peers) {
     serverAttrs.grantedPromises = 0;
     // For WAIT_ACCEPTED phase.
     serverAttrs.grantedAccepts = 0;
+    serverAttrs.grantedNacks = 0;
     serverAttrs.proposeValue = null;
     serverAttrs.timeoutClock = 0;
   }
@@ -362,6 +367,10 @@ var handleMessageProposer = function(model, server, message) {
       // counter that is used only to reset this proposer.
       server.grantedAccepts += 1;
     }
+
+    if (message.type === MESSAGE_TYPE.NACK) {
+      server.grantedNacks += 1;
+    }
   }
 }
 
@@ -369,28 +378,14 @@ var resetProposer = function(server) {
   server.phase = PROPOSER_PHASE.INACTIVE;
   server.grantedPromises = 0;
   server.grantedAccepts = 0;
+  server.grantedNacks = 0;
+}
+
+var shouldProposerRetry = function(model, server) {
+  return server.timeoutClock <= model.time || server.grantedNacks > paxos.NUM_ACCEPTORS / 2;
 }
 
 var handleProposerUpdate = function(model, server) {
-  if(server.timeoutClock <= model.time && server.phase === PROPOSER_PHASE.WAIT_ACCEPTED){//timed out
-    server.term += 2;
-    server.peers.forEach(function(peer) {
-      if (serverIdToState(peer) !== SERVER_STATE.ACCEPTOR) {
-        return; // Only propose to acceptors.
-      }
-      sendRequest(model, {
-        from: server.id,
-        to: peer,
-        type: MESSAGE_TYPE.PREPARE,
-        term: server.term,
-      });
-    });
-    server.grantedPromises = 0;
-    //for debugging livelock feature
-    //server.timeoutClock = PROPOSER_TIMEOUT + model.time;
-    server.phase = PROPOSER_PHASE.WAIT_PROMISE;
-    return;
-  }
   // Prepare phase.
   if (server.phase === PROPOSER_PHASE.SEND_PREPARE) {
     server.peers.forEach(function(peer) {
@@ -440,11 +435,41 @@ var handleProposerUpdate = function(model, server) {
     }
   }
 
-  // Accpet phase. Waiting on quorum of accepted replies for reset.
-  if (server.phase === PROPOSER_PHASE.WAIT_ACCEPTED) {
+  if(server.phase === PROPOSER_PHASE.WAIT_ACCEPTED) {//timed out
+    // Successful.
     if (server.grantedAccepts > paxos.NUM_ACCEPTORS / 2) {
       server.timeoutClock = model.time;
       resetProposer(server);
+      return;
+    }
+
+    // Failure to complete WAIT_ACCEPTED phase. Retry.
+    if (shouldProposerRetry(model, server)) {  // Returns to WAIT_PROMISE phase.
+      server.term += 2;
+      server.peers.forEach(function(peer) {
+        if (serverIdToState(peer) !== SERVER_STATE.ACCEPTOR) {
+          return; // Only propose to acceptors.
+        }
+        sendRequest(model, {
+          from: server.id,
+          to: peer,
+          type: MESSAGE_TYPE.PREPARE,
+          term: server.term,
+        });
+      });
+
+      // Reset counters.
+      server.grantedPromises = 0;
+      server.grantedAccepts = 0;
+      server.grantedNacks = 0;
+
+      //for debugging livelock feature
+      //server.timeoutClock = PROPOSER_TIMEOUT + model.time;
+
+      // Revert back to WAIT_PROMISE phase. Eliminate the timeout
+      // circle as proposers do not do that during WAIT_PROMISE.
+      server.phase = PROPOSER_PHASE.WAIT_PROMISE;
+      server.timeoutClock = model.time;
     }
   }
 }
@@ -478,6 +503,12 @@ var handleAcceptMessage = function(model, server, acceptMsg) {
   // handes the ACCEPT message that this (acceptor) server received from proposer
   // term check
   if (acceptMsg.term < server.promisedTerm ) {
+    // Send back NACK.
+    sendMessage(model, {
+      from: server.id,
+      to: acceptMsg.from,
+      type: MESSAGE_TYPE.NACK,
+    });
     return;
   }
 
