@@ -585,8 +585,40 @@ var handleMessageLearner = function(model, server, message) {
   }
 }
 
+//start of part (1/2) of automated livelock implementation
+var livelockDelay = 80000;
+var SecondMsgAt = util.Inf;//when to send second message
+
+paxos.liveLockSenario = function(model){
+  var group = util.groupServers(model);
+  //first message send
+  sendRequest(model, {
+    from: group[0][0].id,
+    to:  group[1][0].id,
+    type: MESSAGE_TYPE.CLIENT_RQ,
+    term: 0,
+    value: 'abc',
+  });
+  SecondMsgAt = model.time + livelockDelay;
+}
+//end of part (1/2) of automated livelock implementation
+
 // Public function.
 paxos.update = function(model) {
+  //start of part (2/2) of automated livelock implementation
+  if(model.time >= SecondMsgAt){
+    SecondMsgAt = util.Inf;
+    var group = util.groupServers(model);
+    //second message send
+    sendRequest(model, {
+      from: group[0][0].id,
+      to:  group[1][1].id,
+      type: MESSAGE_TYPE.CLIENT_RQ,
+      term: 1,
+      value: 'def',
+    });
+  }
+  //end of part (2/2) of automated livelock implementation
   model.servers.forEach(function(server) {
     // Paxos.
     switch (serverIdToState(server.id)) {

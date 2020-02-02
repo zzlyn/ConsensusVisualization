@@ -161,11 +161,9 @@ util.activate = function () {
     render.messages(messagesSame, svg);
     if (!serversSame) {
       if (activeProtocol == 'paxos') {
-
       } else {
         render.logs(svg);
       }
-
     }
   };
 
@@ -275,7 +273,12 @@ util.activate = function () {
       $('#modal-help').modal('hide');
     } else if (e.keyCode == 'X'.charCodeAt(0)) {
       if (protocol == paxos) {
-        state.current.liveLock = !state.current.liveLock;
+        if(state.current.liveLock == false){
+          state.current.liveLock = true;
+          protocol.liveLockSenario(state.current);
+        } else{
+          state.current.liveLock = false;
+        }
         var lock = document.getElementById("lock-icon");
         if (lock.style.display === "none") {
           lock.style.display = "block";
