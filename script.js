@@ -43,7 +43,7 @@ util.activate = function () {
   });
 
   //if true add delay to promise message in order to simulate livelock
-  if(protocol == paxos){
+  if (protocol == paxos) {
     state.current.liveLock = false;
   }
 
@@ -273,17 +273,19 @@ util.activate = function () {
       $('#modal-help').modal('hide');
     } else if (e.keyCode == 'X'.charCodeAt(0)) {
       if (protocol == paxos) {
-        if(state.current.liveLock == false){
-          state.current.liveLock = true;
-          protocol.liveLockSenario(state.current);
-        } else{
-          state.current.liveLock = false;
-        }
-        var lock = document.getElementById("lock-icon");
-        if (lock.style.display === "none") {
-          lock.style.display = "block";
-        } else {
-          lock.style.display = "none";
+        if (window.confirm("Do you want to enter livelock mode?")) {
+          if (state.current.liveLock == false) {
+            state.current.liveLock = true;
+            protocol.liveLockSenario(state.current);
+          } else {
+            state.current.liveLock = false;
+          }
+          var lock = document.getElementById("lock-icon");
+          if (lock.style.display === "none") {
+            lock.style.display = "block";
+          } else {
+            lock.style.display = "none";
+          }
         }
       }
     }
