@@ -39,7 +39,7 @@ util.paxosLayoutCoord = function(frac, state, cx, cy, r) {
       x: 150,
       y: cy,
     };
-  } 
+  }
 };
 
 util.verticalCoord = function(type,num,xGap,yGap,cx,cy,NUM_P,NUM_A,NUM_L){
@@ -246,4 +246,8 @@ util.resetStates = function(model){
     server.learnedValue = null;
     server.term = 1;
   })
+}
+
+util.makeArrayOfArrays = function(length) {
+  return Array.from({length: length}, () => []);
 }

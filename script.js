@@ -86,14 +86,17 @@ util.activate = function () {
 
   (function () {
     if (protocol == pbft) {
-      for (var i = 0; i < protocol.NUM_SERVERS; i += 1) {
+      /* PBFT server IDs begin at zero, and are used to determine at each node
+       * whether the node is the current primary. */
+      for (var i = 0; i < protocol.NUM_NODES; i += 1) {
         var peers = [];
-        for (var j = 0; j < protocol.NUM_SERVERS; j += 1) {
+        for (var j = 0; j < protocol.NUM_NODES; j += 1) {
           peers.push(j);
         }
         state.current.servers.push(protocol.server(i, peers));
       }
     } else {
+      /* Raft and Paxos are designed wih server indices beginning at 1. */
       for (var i = 1; i <= protocol.NUM_SERVERS; i += 1) {
         var peers = [];
         for (var j = 1; j <= protocol.NUM_SERVERS; j += 1) {
