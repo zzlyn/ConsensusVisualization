@@ -11,36 +11,70 @@ var pbft = {};
 
 /* Begin PBFT algorithm logic */
 
-// Public Variable.
-pbft.NUM_SERVERS = 5;
+// Number of servers participating in PBFT.
+var NUM_SERVERS = 5;
+// Number of clients whose requests are serviced.
+var NUM_CLIENTS = 1;
+// This is 'f' described in the paper, i.e., the number of Byzantine (arbitrary)
+// failures that the algorithm can progress correctly with.
 var NUM_TOLERATED_BYZANTINE_FAULTS = 1;
 
+// Public variable, indicating how many nodes to draw.
+pbft.NUM_NODES = NUM_SERVERS + NUM_CLIENTS;
+
+// Messages have a latency randomly selected in the range
+// [MIN_RPC_LATENCY, MAX_RPC_LATENCY]
 var MIN_RPC_LATENCY = 18000;
 var MAX_RPC_LATENCY = 22000;
+// View change timeouts are randomly selected in the range
+// [VIEW_CHANGE_TIMEOUT, 2 * VIEW_CHANGE_TIMEOUT].
 var VIEW_CHANGE_TIMEOUT = 80000;
 
-const SERVER_STATE = {
-  PRIMARY: 'primary',
-  BACKUP: 'backup',
-  CHANGING_VIEW: 'changing_view'
+const NODE_STATE = {
+  /* Prefix with pbft to avoid collision with other algorithms
+   * that use the same names for CSS classes. */
+  PRIMARY: 'pbft_primary',
+  BACKUP: 'pbft_backup',
+  CHANGING_VIEW: 'pbft_changing_view',
+  CRASHED: 'pbft_crashed',
+  CLIENT: 'pbft_client',
+  UNKNOWN: 'pbft_unknown'
 }
 
 const MESSAGE_TYPE = {
-  REQUEST: 'client_request_msg',
+  CLIENT_REQUEST: 'client_request_msg',
   PRE_PREPARE: 'pre_prepare_msg',
   PREPARE: 'prepare_msg',
   COMMIT: 'commit_msg',
-  REPLY: 'client_reply_msg',
+  CLIENT_REPLY: 'client_reply_msg',
   VIEW_CHANGE: 'view_change_msg',
   NEW_VIEW: 'new_view_msg',
   CHECKPOINT: 'checkpoint_msg'
 }
 
+/**
+ * Translate ID in range [1, NUM_SERVERS] to initial server state.
+ * Backups participate in PBFT; clients make requests to the backups.
+ *      | ---- backups ---- | ---- clients ---- |
+ *      0              NUM_SERVERS          NUM_NODES
+ */
+var serverIdToState = function (id) {
+  if (0 <= id && id < NUM_SERVERS) {
+    return NODE_STATE.BACKUP;
+  }
+
+  if (id < pbft.NUM_NODES) {
+    return NODE_STATE.CLIENT;
+  }
+
+  return NODE_STATE.UNKNOWN;
+}
+
 
 var sendMessage = function(model, message) {
   message.sendTime = model.time;
-  message.recvTime = model.time +
-                     MIN_RPC_LATENCY +
+  message.recvTime = (message.from == message.to) ? model.time + 1000 :
+                     model.time + MIN_RPC_LATENCY +
                      Math.random() * (MAX_RPC_LATENCY - MIN_RPC_LATENCY);
   model.messages.push(message);
 };
@@ -50,10 +84,6 @@ var sendRequest = function(model, request) {
   sendMessage(model, request);
 };
 
-var logView = function(log, index) {
-  // TODO
-};
-
 var rules = {};
 pbft.rules = rules;
 
@@ -61,56 +91,119 @@ var makeViewChangeAlarm = function(now) {
   return now + (Math.random() + 1) * VIEW_CHANGE_TIMEOUT;
 };
 
-var makeArrayOfArrays = function(length) {
-  return Array.from({length: length}, () => []);
-}
-
+/**
+ * Make an array, containing arrays for for each peer. This is useful when
+ * tracking a queue of things happening for each peer (e.g. broadcasting a
+ * message).
+ */
 var makePeerArrays = function() {
-  return makeArrayOfArrays(pbft.NUM_SERVERS);
+  return util.makeArrayOfArrays(pbft.NUM_NODES);
 }
 
 // Public API.
 pbft.server = function(id, peers) {
   return {
-    // id ranges from `0` to `pbft.NUM_SERVERS - 1`.
+    /* id ranges from `0` to `NUM_NODES - 1`. server.id represents "i"
+     * when the paper refers to message formats. */
     id: id,
-    // `pbft.NUM_SERVERS - 1` entries exist in the `peers` array,
-    // holding the id for each peer.
+
+    /* peers is an array holding IDs of all peer servers, including itself.
+     * These range from `0` to `NUM_NODES - 1`. */
     peers: peers,
-    // state can be SERVER_STATE.BACKUP, SERVER_STATE.CHANGING_VIEW, or SERVER_STATE.PRIMARY.
-    state: SERVER_STATE.BACKUP,
-    // 0 is the initial view number v.
-    view: 0,
-    // 0 is the initial sequence number n.
-    n: 0,
-    // Contains accepted messages.
+
+    state: serverIdToState(id),
+
+    /* Holds the last sequence number used in a message sent out from this server. */
+    lastUsedSequenceNumber: -1,
+
+    /* Contains committed messages. */
     log: [],
-    // timeouts are started only upon receiving a client request.
+
+    /* Describes the view that the server is in, as described in the paper. */
+    view: 0,
+
+    /* The next time that the server will time out and begin a view change.
+     * Set to infinity means no timeout. */
     viewChangeAlarm: util.Inf,
-    // key: "k." + id,
-    // rpcDue: util.makeMap(peers, 0),
-    // A map, with keys corresponding to view number, of arrays
-    // holding arrays of view change requests sent to each server.
-    viewChangeRequestsSent: {},
-    // A map, with keys corresponding to view number, of arrays
-    // holding arrays of view changes received from each server.
-    viewChangeRequestsReceived: {},
-    // The current attempt for view change, starting at 1 to indicate
-    // first attempt.
-    viewChangeAttempt: 1,
+
+    /* Record of the highest valid view change reques this server has received,
+     * to ensure views are monotonically increasing. */
     highestViewChangeReceived: 0,
-    newViewRequestsSent: {},
-    acceptedPrePrepares: {},
-    acceptedPrepares: {},
-    preparedMessagesToCommit: {},
-    receivedCommitRequests: {},
+
+    /* The attempt number of the next view change. Used to calculate the next view
+     * that this server should try to move towards (allowing skipping past up to f
+     * malicious servers that block the view change). */
+    viewChangeAttempt: 1,
+
+    /* TODO: need to add a "key" to verify authenticity of the server. */
+    //key: "k." + id,
+
+    /* Client request messages get pushed to queuedClientRequests. This is a
+     * FIFO queue of requests that the client has sent to this server, that this
+     * server either needs to start the pre-prepare phase for (if it is primary),
+     * or is waiting for the request to be committed (if it is a backup), and
+     * will time out and start a view change if the requesdt is not committed in
+     * time. */
     queuedClientRequests: [],
+
+    /* After reading from queuedClientRequests, a primary queues copies of the client
+     * message to send as pre-prepares to servers in clientMessagesToSend. This stores
+     * the messages indexed first by the server's view number, and then by its peers'
+     * IDs. */
     clientMessagesToSend: {},
+
+    /* Record of the peers that this server has sent prePrepare requests to, for a
+     * particular (v, n) combination (view, sequence number). This is needed so that
+     * the server sends the prePrepare to its peers only once. */
     prePrepareRequestsSent: {},
+
+    /* The pre-prepare requests received and accepted as valid at this server. */
+    acceptedPrePrepares: {},
+
+    /* Record of the peers that this server has sent prepare requests to, for a
+     * particular (v, n) combination. This is needed so that the server sends the
+     * prepares to its peers only once. */
     sentPrepareRequests: {},
+
+    /* The prepare requests that this server has received and accepted. */
+    acceptedPrepares: {},
+
+    /* After reading from acceptedPrepares, the server queues commit messages
+     * to send to each peer for each accepted prepare message, for all (v, n)
+     * combinations. */
+    preparedMessagesToCommit: {},
+
+    /* Record of the peers that this server has sent commit requests to, for a
+     * particular (v, n) combination. This is needed so that the server sends
+     * commits to its peers only once. */
     sentCommitRequests: {},
-    nextSequenceNumber: 0,
+
+    /* The commit requests that this server has received and accepted. */
+    receivedCommitRequests: {},
+
+    /* Record of the messages that this server has considered committed and
+     * pushed to its log. Needed so that the server pushes messages for a
+     * given (n, v) combination to its log only once. */
     pushedLogMessages: {},
+
+    /* Record of the view change requests that this server has sent to its
+     * peers for a given view. This is needed so that the server sends view
+     * change requests to another view only once. */
+    viewChangeRequestsSent: {},
+
+    /* The valid view change requests that this server has received. */
+    viewChangeRequestsReceived: {},
+
+    /* Record of the new view requests that this server has sent to its
+     * peers for a given view. This is needed so that the server (which is
+     * becoming primary and sending the newView request) sends new view
+     * requests to its peers only once. */
+    newViewRequestsSent: {},
+
+    /* TODO: for use in the complete version of view change logic.
+     * (see the TODO in the sendViewChange function. */
+    // prePreparedMessageProofs: {},
+    // checkpointProof: {},
   };
 };
 
@@ -120,120 +213,218 @@ var updateHighestViewChangeReceived = function(server, v) {
 }
 
 var getLatestCheckpointSequenceNumber = function(server) {
+  // TODO
   return 0;
 }
 
-// Check if server should start a view change, and if so prepare data members
-// of server for the view change execution.
-rules.startNewViewChange = function(model, server) {
-  if (server.viewChangeAlarm <= model.time) {
-    console.log("server " + server.id + " timed out");
-    // If timed out during a view change, try again with a new attempt.
-    if (server.state == SERVER_STATE.CHANGING_VIEW) {
-      server.viewChangeAttempt += 1;
-    }
-
-    // No timeout, until 2f + 1 view change requests are received
-    server.viewChangeAlarm = util.Inf;
-    // This is read to indicate that the server is not accepting messages
-    // other than VIEW-CHANGE, NEW-VIEW, or CHECKPOINT.
-    server.state = SERVER_STATE.CHANGING_VIEW;
-    // TODO: set C and P here.
-
-    // Add its own view change request.
-    var v = server.view + server.viewChangeAttempt;
-    server.viewChangeRequestsReceived[v] = server.viewChangeRequestsReceived[v] || makePeerArrays();
-    server.viewChangeRequestsReceived[v][server.id].push({
-      from: server.id, // this is `i` described in PBFT paper.
-      to: server.id,
-      type: MESSAGE_TYPE.VIEW_CHANGE,
-      v: v,
-      n: getLatestCheckpointSequenceNumber(server),
-      C: 0,
-      P: 0,
-    });
-    updateHighestViewChangeReceived(server, v);
-  }
-};
-
-// TODO: enforce a limited number of client requests in progress
-// TODO: make finer semantics for client forwarding queued requests to primary
 rules.startPrePrepare = function(model, server) {
   server.clientMessagesToSend[server.view] = server.clientMessagesToSend[server.view] || makePeerArrays();
-  if ((server.state !== SERVER_STATE.CHANGING_VIEW) &&
-      (server.id == (server.view % pbft.NUM_SERVERS)) &&
+
+  if ((server.id == (server.view % NUM_SERVERS)) &&
       (server.queuedClientRequests.length !== 0)) {
-    console.log("queuedClientRequests.length: " + server.queuedClientRequests.length)
+
+    /* Increment the sequence number every time we start a new pre-prepare
+     * request. This ensures a unique sequence number for requests
+     * made in the same view, so total ordering can be realized. */
+    server.lastUsedSequenceNumber += 1;
+
+    /* Extract the request from the queue the client sent the request to. */
     var request = server.queuedClientRequests.shift();
-    server.clientMessagesToSend[server.view].forEach(function(messages) {
-      console.log("startPrePrepare: id=" + server.id + " view=" + server.view);
-      messages.push(request);
+    /* Queue the messages to be sent to other servers (see where this is read in
+     * sendPrePrepare). */
+    server.clientMessagesToSend[server.view].forEach(function(peerMessageQueue) {
+      peerMessageQueue.push(request);
     });
   }
 };
 
+rules.sendPrePrepare = function(model, server, peer) {
+  server.clientMessagesToSend[server.view] = server.clientMessagesToSend[server.view] || makePeerArrays();
+  server.prePrepareRequestsSent[server.view] = server.prePrepareRequestsSent[server.view] || {};
+  server.prePrepareRequestsSent[server.view][server.lastUsedSequenceNumber]
+    = server.prePrepareRequestsSent[server.view][server.lastUsedSequenceNumber] || makePeerArrays();
+
+  if ((server.id == (server.view % NUM_SERVERS)) &&
+      (server.clientMessagesToSend[server.view][peer].length !== 0) &&
+      (server.prePrepareRequestsSent[server.view][server.lastUsedSequenceNumber][peer].length === 0)) {
+    var request = {
+      from: server.id,
+      to: peer,
+      type: MESSAGE_TYPE.PRE_PREPARE,
+      v: server.view,
+      n: server.lastUsedSequenceNumber,
+      d: 0, // TODO: this should create a "digest" based on m
+      /* The message content is sent at the same time as the pre-prepare. */
+      m: server.clientMessagesToSend[server.view][peer][0],
+    };
+    server.prePrepareRequestsSent[server.view][server.lastUsedSequenceNumber][peer].push(request);
+    server.clientMessagesToSend[server.view][peer].shift();
+    sendRequest(model, request);
+  }
+};
+
+var handlePrePrepareRequest = function(model, server, request) {
+  server.acceptedPrePrepares[request.v] = server.acceptedPrePrepares[request.v] || {};
+  server.acceptedPrePrepares[request.v][request.n] = server.acceptedPrePrepares[request.v][request.n] || [];
+
+  // TODO: valdity check before pushing the pre-prepare.
+  server.acceptedPrePrepares[request.v][request.n].push(request);
+};
+
+rules.sendPrepares = function(model, server, peer) {
+  server.acceptedPrePrepares[server.view] = server.acceptedPrePrepares[server.view] || {};
+  server.sentPrepareRequests[server.view] = server.sentPrepareRequests[server.view] || {};
+
+  for (let [n, requests] of Object.entries(server.acceptedPrePrepares[server.view])) {
+    server.sentPrepareRequests[server.view][n] = server.sentPrepareRequests[server.view][n] || makePeerArrays();
+
+    /* Check that only one pre-prepare was ever sent. */
+    console.assert(requests.length <= 1);
+
+    if ((requests.length === 1) &&
+        (server.sentPrepareRequests[server.view][n][peer].length === 0) &&
+        (peer != server.id) && /* Don't sent prepares to self. */
+        (!(server.view % NUM_SERVERS == server.id)) /* Primary does not send prepares. */
+       ) {
+
+      /* We should only be preparing a message that was pre-prepared in the same view. */
+      console.assert(server.view === requests[0].v);
+
+      var request = {
+        from: server.id,
+        to: peer,
+        type: MESSAGE_TYPE.PREPARE,
+        v: server.view,
+        n: n,
+        d: 0, // TODO: this "digest" should be computed
+      };
+      sendRequest(model, request);
+      server.sentPrepareRequests[server.view][n][peer].push(request);
+    }
+  }
+};
+
+var handlePrepareRequest = function(model, server, request) {
+  server.acceptedPrepares[request.v] = server.acceptedPrepares[request.v] || {};
+  server.acceptedPrepares[request.v][request.n] = server.acceptedPrepares[request.v][request.n] || makePeerArrays();
+
+  // TODO: validity check before pushing the prepare.
+  server.acceptedPrepares[request.v][request.n][request.from].push(request);
+};
+
+/**
+ * Helper function to get the number of unique peers that received a message
+ * of type PREPARE.
+ */
 var getUniqueNumPrepareRequestsReceived = function(peerPrepareRequests) {
   if (peerPrepareRequests == undefined) {
     return 0;
   }
   var count = 0;
-  peerPrepareRequests.forEach(function(requests) {
-    // TODO: this should be a validity check
-    if (requests.length !== 0 &&
-        requests[0].type == MESSAGE_TYPE.PREPARE) {
+  peerPrepareRequests.forEach(function(peerRequestQueue) {
+    if (peerRequestQueue.length !== 0 &&
+      peerRequestQueue[0].type == MESSAGE_TYPE.PREPARE) {
       count += 1;
     }
   }, count);
   return count;
 };
 
-var getFirstRequest = function(requests) {
-  for (var i = 0; i < requests.length; i++) {
-    if (requests[i].length !== 0) {
-      return requests[i];
-    }
-  }
-  return null;
-}
-
 rules.startCommit = function(model, server) {
   server.preparedMessagesToCommit[server.view] = server.preparedMessagesToCommit[server.view] || {};
   server.acceptedPrepares[server.view] = server.acceptedPrepares[server.view] || {};
-  // TODO: check if 2f + 1 valid prepares received, and add to preparedMessagesToCommit
-  if ((server.state !== SERVER_STATE.CHANGING_VIEW)) {
-    for (let [n, requests] of Object.entries(server.acceptedPrepares[server.view])) {
-      server.preparedMessagesToCommit[server.view][n] = server.preparedMessagesToCommit[server.view][n] || [];
-      // This checks the predicate 'prepared' from the paper. Only 2f prepares are needed (not 2f + 1).
-      if ((getUniqueNumPrepareRequestsReceived(requests) >=
-           (2 * NUM_TOLERATED_BYZANTINE_FAULTS)) &&
-          (server.preparedMessagesToCommit[server.view][n].length == 0)) {
-        server.preparedMessagesToCommit[server.view][n].push(getFirstRequest(requests)[0]);
-      }
+
+  for (let [n, requests] of Object.entries(server.acceptedPrepares[server.view])) {
+    server.preparedMessagesToCommit[server.view][n] = server.preparedMessagesToCommit[server.view][n] || [];
+
+    /* The below condition checks the "prepared" predicate mentioned in the
+     * paper. Note that only 2f PREPAREs are required, because servers do not
+     * send PREPARE messages to themselves (and so have already implicitly
+     * counted one prepare message, or have sent a PRE-PREPARE with matching
+     * view and sequence number in the case of the primary). */
+    if ((getUniqueNumPrepareRequestsReceived(requests) >=
+        (2 * NUM_TOLERATED_BYZANTINE_FAULTS)) &&
+        (server.preparedMessagesToCommit[server.view][n].length == 0)) {
+      var requestToCommit = getFirstRequest(requests)[0];
+      server.preparedMessagesToCommit[server.view][n].push(requestToCommit);
     }
   }
 };
 
+rules.sendCommits = function(model, server, peer) {
+  server.preparedMessagesToCommit[server.view] = server.preparedMessagesToCommit[server.view] || {};
+  server.sentCommitRequests[server.view] = server.sentCommitRequests[server.view] || {};
+  for (let [n, requests] of Object.entries(server.preparedMessagesToCommit[server.view])) {
+    console.assert(requests.length <= 1);
+    server.sentCommitRequests[server.view][n] = server.sentCommitRequests[server.view][n] || makePeerArrays();
+    if ((requests.length === 1) &&
+        (server.sentCommitRequests[server.view][n][peer].length === 0)
+       ) {
+      var request = {
+        from: server.id,
+        to: peer,
+        type: MESSAGE_TYPE.COMMIT,
+        v: server.view,
+        n: n,
+        d: 0, // TODO: recompute D(m) here, don't use request.d
+      };
+      /* Sequence number of the request must match the sequence numbeer we
+       * are indexing the `preparedMessagesToCommit` object by. */
+      console.assert(n == request.n);
+      sendRequest(model, request);
+      server.sentCommitRequests[server.view][n][peer].push(request);
+    }
+  }
+};
+
+var handleCommitRequest = function(model, server, request) {
+  server.receivedCommitRequests[request.v] = server.receivedCommitRequests[request.v] || {};
+  server.receivedCommitRequests[request.v][request.n] = server.receivedCommitRequests[request.v][request.n] || makePeerArrays();
+
+  // TODO: validity check before pushing the commit request.
+  server.receivedCommitRequests[request.v][request.n][request.from].push(request);
+};
+
+/**
+ * Helper function to get the number of unique peers that received a message
+ * of type COMMIT.
+ */
 var getUniqueNumCommitRequestsReceived = function(peerCommitRequests) {
   if (peerCommitRequests == undefined) {
     return 0;
   }
   var count = 0;
-  peerCommitRequests.forEach(function(requests) {
-    // TODO: this should be a validity check
-    if (requests.length !== 0 &&
-        requests[0].type == MESSAGE_TYPE.COMMIT) {
+  peerCommitRequests.forEach(function(peerRequestQueue) {
+    if (peerRequestQueue.length !== 0 &&
+      peerRequestQueue[0].type == MESSAGE_TYPE.COMMIT) {
       count += 1;
     }
   }, count);
   return count;
 };
 
+/**
+ * Helper function to return the first array of request queues that has
+ * received a request.
+ */
+var getFirstRequest = function(requestQueues) {
+  for (var i = 0; i < requestQueues.length; i++) {
+    if (requestQueues[i].length !== 0) {
+      return requestQueues[i];
+    }
+  }
+  return null;
+}
+
 rules.addCommitsToLog = function(model, server) {
   server.receivedCommitRequests[server.view] = server.receivedCommitRequests[server.view] || {};
   server.pushedLogMessages[server.view] = server.pushedLogMessages[server.view] || {};
+
   Object.keys(server.receivedCommitRequests[server.view]).forEach(function(n) {
+
     server.receivedCommitRequests[server.view][n] = server.receivedCommitRequests[server.view][n] || makePeerArrays();
     server.pushedLogMessages[server.view][n] = server.pushedLogMessages[server.view][n] || [];
+
     if ((getUniqueNumCommitRequestsReceived(server.receivedCommitRequests[server.view][n]) >=
          (2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1) &&
         (server.pushedLogMessages[server.view][n].length == 0)) {
@@ -247,263 +438,122 @@ rules.addCommitsToLog = function(model, server) {
         }
       }
 
-      // "tick" this request off from the queuedClientRequests, and remove
-      // the election alarm (no need to continue view change)
+      /* If the request was satisfied, remove it from queuedClientRequests. If
+       * there are no more requests, we can remove the timeout, or reset the
+       * timeout if there are still requests to process. */
       for (var i = 0; i < server.queuedClientRequests.length; i++) {
         if (server.queuedClientRequests[i] == m) {
           server.queuedClientRequests.splice(i, 1);
-          server.viewChangeAlarm = util.Inf;
+          if (server.queuedClientRequests.length == 0) {
+            server.viewChangeAlarm = util.Inf;
+          } else {
+            server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+          }
         }
       }
-      // For the primary, we can find the matchine message in the acceptedPrePrepares
-      if ((server.id % pbft.NUM_SERVERS) == server.view) {
+      /* The primary checks for the original request in its
+       * acceptedPrePrepares (it already dequeued the client request
+       * from queuedClientRequests). */
+      if ((server.id % NUM_SERVERS) == server.view) {
         for (let [n, requests] of Object.entries(server.acceptedPrePrepares[server.view])) {
           if (n == rq.n && requests[0].v == rq.v) {
-            server.queuedClientRequests.splice(i, 1);
-            server.viewChangeAlarm = util.Inf;
+            if (server.queuedClientRequests.length == 0) {
+              server.viewChangeAlarm = util.Inf;
+            } else {
+              server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+            }
             break;
           }
         }
       }
 
-      /* - (without checking any messages for validity) this can happen in edge cases, e.g. pre-prepare sent by a new primary
-       * reached the replica before the new view message did
-       * - this will result in the message being missed by the server, and when it becomes primary it will think it still
-       * needs to try to commit the message. the pre-prepare/prepare/commit stage will still occur, but other servers
-       * won't re-execute after checking that the message timestamps are the same. */
+      /* Right now, this can happen if say a pre-prepare message from the new
+       * primary made it to a peer, before the new-view message. In this case,
+       * the peer won't have accepted the pre-prepare  in the same view. */
       if (m === undefined) {
-        console.log("warning: server " + server.id + "missed pre-prepare for message with view " + rq.v + " and sequence number " + rq.n);
+        console.warn("server " + server.id + "missed pre-prepare for message with view " + rq.v + " and sequence number " + rq.n);
       }
 
       var msg = "(" + rq.v + "," + rq.n + "," + m + ")";
-      console.log("logging: " + msg + " at server S" + server.id);
       server.log.push(msg);
       server.pushedLogMessages[server.view][n].push(msg);
     }
   });
 };
 
-var getUniqueNumViewChangeRequestsReceived = function(peerViewChangeRequests) {
-  if (peerViewChangeRequests == undefined) {
-    return 0;
-  }
-  var count = 0;
-  peerViewChangeRequests.forEach(function(requests) {
-    // TODO: this should be a validity check
-    if (requests.length !== 0 &&
-        requests[0].type == MESSAGE_TYPE.VIEW_CHANGE) {
-      count += 1;
-    }
-  }, count);
-  return count;
-};
+rules.sendClientReply = function(model, server, peer) {
+  // TODO
+}
 
 rules.startViewChangeTimeout = function(model, server) {
-  // Restart the timeout upon receiving valid view change requests
-  // from 2f+1 nodes.
-  if ((server.state == SERVER_STATE.CHANGING_VIEW) &&
+  /* If we're currently trying to change the view, and we've received one
+   * valid view change request from every peer, we start the timeout again,
+   * until we receive a valid new view request from the new primary. */
+  if ((server.state == NODE_STATE.CHANGING_VIEW) &&
       (getUniqueNumViewChangeRequestsReceived(
          server.viewChangeRequestsReceived[server.view +
-                                           server.viewChangeAttempt])
-       >= ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1)) &&
-      (server.viewChangeAlarm === util.Inf)) { // Make sure the timeout is only set when not already running.
-    // TODO: this timeout should be 2x the previous amount (increase
-    // by factor of 2 for each attempt).
+                                           server.viewChangeAttempt]
+       ) >= ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1)) &&
+      /* Only reset the timeout if it wasn't already running. This prevents
+       * repeatedly restarting over and over. */
+      (server.viewChangeAlarm === util.Inf)) {
     server.viewChangeAlarm = makeViewChangeAlarm(model.time);
   }
 };
 
-var hasUnsentPrePrepare = function(sentRequests, peer) {
-  return sentRequests[peer].length == 0;
-}
+/**
+ * Check if server that had set a view change alarm timed out,
+ * and if so, begin a new view change. */
+rules.startNewViewChange = function(model, server) {
 
-rules.sendPrePrepare = function(model, server, peer) {
-  server.clientMessagesToSend[server.view] = server.clientMessagesToSend[server.view] || makePeerArrays();
-  server.prePrepareRequestsSent[server.view] = server.prePrepareRequestsSent[server.view] || makePeerArrays();
-  if ((server.state !== SERVER_STATE.CHANGING_VIEW) &&
-      (server.id == (server.view % pbft.NUM_SERVERS)) &&
-      (server.clientMessagesToSend[server.view][peer].length !== 0) &&
-      (hasUnsentPrePrepare(server.prePrepareRequestsSent[server.view], peer))) {
-    var request = {
-      from: server.id, // this is `i` described in PBFT paper.
-      to: peer,
-      type: MESSAGE_TYPE.PRE_PREPARE,
-      v: server.view,
-      n: server.nextSequenceNumber,
-      d: 0, // TODO: this should create a "digest" based on m
-      // We don't care about performance right now so we just attach the
-      // client message as a field of the PRE-PREPARE.
-      m: server.clientMessagesToSend[server.view][peer][0],
-    };
-    console.log("sending prePrepare from " + server.id + " to " + peer + " with message value " + request.m);
-    server.prePrepareRequestsSent[server.view][peer].push(request);
-    sendRequest(model, request);
+  if (server.state == NODE_STATE.CRASHED) {
+    return;
   }
-};
 
-rules.sendCheckpoint = function(model, server, peer) {
-  // TODO
+  if (server.viewChangeAlarm <= model.time) {
+
+    if (server.state == NODE_STATE.CHANGING_VIEW) {
+      /* Increasing the attempt number means that if we failed to move to the
+       * next view, we can try again to move to the next view after that. */
+      server.viewChangeAttempt += 1;
+    }
+
+    /* As mentioned in the paper, if a server decided to start a view change, the
+     * timeout is stopped until 2f+1 view change requests are received, and
+     * restarted once 2f+1 view change requests are received. */
+    server.viewChangeAlarm = util.Inf;
+
+    /* We must change the state to CHANGING_VIEW so that a server trying to
+     * move to the next view does not respond to messages other than
+     * VIEW-CHANGE, NEW-VIEW, or CHECKPOINT. */
+    server.state = NODE_STATE.CHANGING_VIEW;
+  }
 };
 
 rules.sendViewChange = function(model, server, peer) {
-  var v = server.view + server.viewChangeAttempt;
-  server.viewChangeRequestsSent[v] = server.viewChangeRequestsSent[v] || makePeerArrays();
-  if (server.state == SERVER_STATE.CHANGING_VIEW &&
-      server.viewChangeRequestsSent[v][peer].length == 0) {
-    var message = {
-      from: server.id, // this is `i` described in PBFT paper.
-      to: peer,
-      type: MESSAGE_TYPE.VIEW_CHANGE,
-      v: v,
-      n: getLatestCheckpointSequenceNumber(server),
-      C: server.checkpointProof,
-      P: server.prePreparedMessageProofs,
-    };
-    server.viewChangeRequestsSent[v][peer].push(message);
-    sendRequest(model, message);
-  }
-};
 
-rules.sendNewView = function(model, server, peer) {
-  server.newViewRequestsSent[server.highestViewChangeReceived] = server.newViewRequestsSent[server.highestViewChangeReceived] || makePeerArrays();
-  if ((server.state !== 'crashed') &&
-      (getUniqueNumViewChangeRequestsReceived(
-         server.viewChangeRequestsReceived[server.highestViewChangeReceived]) >=
-       (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1)) &&
-      (server.id == (server.highestViewChangeReceived % pbft.NUM_SERVERS)) &&
-      (server.newViewRequestsSent[server.highestViewChangeReceived][peer].length === 0)) { // Only send the NEW-VIEW message once.
+  var nextView = server.view + server.viewChangeAttempt;
+  server.viewChangeRequestsSent[nextView] = server.viewChangeRequestsSent[nextView] || makePeerArrays();
+  if (server.state == NODE_STATE.CHANGING_VIEW &&
+      server.viewChangeRequestsSent[nextView][peer].length == 0) {
+
+    /* TODO(rfairley): Must compute C and P  and attach these to the view
+     *  change request (the set of committed but not checkpointed requests
+     *  this server has processed, and the set of prepared but not
+     *  committed requests this server has a record of). */
+
     var message = {
       from: server.id,
       to: peer,
-      type: MESSAGE_TYPE.NEW_VIEW,
-      v: server.highestViewChangeReceived,
-      V: server.viewChangeRequests
+      type: MESSAGE_TYPE.VIEW_CHANGE,
+      v: nextView,
+      n: getLatestCheckpointSequenceNumber(server),
+      C: server.checkpointProof, /* TODO: see above */
+      P: server.prePreparedMessageProofs, /* TODO: see above */
     };
+    server.viewChangeRequestsSent[nextView][peer].push(message);
     sendRequest(model, message);
-    server.view = server.highestViewChangeReceived;
-    // We reset the new primary temporarily to a SERVER_STATE.BACKUP; it will be picked
-    // up later by becomePrimary which will set its state to SERVER_STATE.PRIMARY.
-    server.state = SERVER_STATE.BACKUP;
-    server.viewChangeAlarm = util.Inf;
-    server.newViewRequestsSent[server.highestViewChangeReceived][peer].push(message);
   }
-};
-
-rules.becomePrimary = function(model, server) {
-  var count = 0;
-  for (var i = 0; i < model.servers.length; i++) {
-    if ((model.servers[i].view % pbft.NUM_SERVERS) == server.id) {
-      count += 1;
-    }
-  }
-  if (count >= (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1) &&
-      server.state == SERVER_STATE.BACKUP) { // Make sure the server is not SERVER_STATE.CHANGING_VIEW.
-    var oldPrimary = pbft.getLeader();
-    if (oldPrimary !== null) {
-      oldPrimary.state = SERVER_STATE.BACKUP;
-    }
-    server.state = SERVER_STATE.PRIMARY;
-  }
-}
-
-rules.sendPrepares = function(model, server, peer) {
-  server.acceptedPrePrepares[server.view] = server.acceptedPrePrepares[server.view] || {};
-  server.sentPrepareRequests[server.view] = server.sentPrepareRequests[server.view] || {};
-  for (let [n, requests] of Object.entries(server.acceptedPrePrepares[server.view])) {
-    console.assert(requests.length <= 1);
-    server.sentPrepareRequests[server.view][n] = server.sentPrepareRequests[server.view][n] || makePeerArrays();
-    if ((server.state != SERVER_STATE.CHANGING_VIEW) &&
-        (requests.length === 1) &&
-        (server.sentPrepareRequests[server.view][n][peer].length === 0) &&
-        (peer != server.id) && /* Don't sent prepares to self. */
-        (!(peer.view % pbft.NUM_SERVERS == peer.id)) /* Primary does not send prepares. */
-       ) {
-
-      // This should be guaranteed by accessing acceptedPrePrepares by server.view above
-      // Pre-prepares and prepares must occur within the same view.
-      console.assert(server.view === requests[0].v);
-      var request = {
-        from: server.id, // same as 'i' in the paper.
-        to: peer,
-        type: MESSAGE_TYPE.PREPARE,
-        v: server.view,
-        n: n,
-        d: 0, // TODO: this "digest" should be computed
-      };
-      sendRequest(model, request);
-      server.sentPrepareRequests[server.view][n][peer].push(request);
-    }
-  }
-};
-
-rules.sendCommits = function(model, server, peer) {
-  server.preparedMessagesToCommit[server.view] = server.preparedMessagesToCommit[server.view] || {};
-  server.sentCommitRequests[server.view] = server.sentCommitRequests[server.view] || {};
-  for (let [n, requests] of Object.entries(server.preparedMessagesToCommit[server.view])) {
-    console.assert(requests.length <= 1);
-    server.sentCommitRequests[server.view][n] = server.sentCommitRequests[server.view][n] || makePeerArrays();
-    if ((server.state != SERVER_STATE.CHANGING_VIEW) &&
-        (requests.length === 1) &&
-        (server.sentCommitRequests[server.view][n][peer].length === 0)
-       ) {
-      var request = {
-        from: server.id,
-        to: peer,
-        type: MESSAGE_TYPE.COMMIT,
-        v: server.view,
-        n: n,
-        d: 0, // recompute D(m) here, don't use request.d
-      };
-      // If accessing a request through the `sendCommitRequests` object, the
-      // sequence number of the request must match the sequence number it was
-      // indexed by.
-      console.assert(n == request.n);
-      console.log("sending commit message from node " + server.id + " v:" + request.v + " n:" + request.n);
-      sendRequest(model, request);
-      server.sentCommitRequests[server.view][n][peer].push(request);
-    }
-  }
-};
-
-var handlePrePrepareRequest = function(model, server, request) {
-  // TODO: check not alredy accepted a pre-prepare from another server for
-  // this v, n.
-  // TODO: check v is same.
-  // TODO: watermark and digest
-  if (server.state != SERVER_STATE.CHANGING_VIEW) {
-    server.acceptedPrePrepares[request.v] = server.acceptedPrePrepares[request.v] || {};
-    server.acceptedPrePrepares[request.v][request.n] = server.acceptedPrePrepares[request.v][request.n] || [];
-    server.acceptedPrePrepares[request.v][request.n].push(request);
-    // TODO: valdity check on the pushed pre-prepare.
-  }
-};
-
-var handlePrepareRequest = function(model, server, request) {
-  if (server.state != SERVER_STATE.CHANGING_VIEW) {
-    server.acceptedPrepares[request.v] = server.acceptedPrepares[request.v] || {};
-    server.acceptedPrepares[request.v][request.n] = server.acceptedPrepares[request.v][request.n] || makePeerArrays();
-    // TODO: before pushing a pre-prepare, need to check it matches digest already pushed pre-prepare.
-    // An array without indexing by sender server id might be a better structure for this.
-    if (server.acceptedPrepares[request.v][request.n][request.from].length !== 0) {
-      // TODO: check digest of last received pre prepare message against current one.
-    }
-    console.log("accepted prepare at node " + server.id + " v: " + request.v + " n: " + request.n + " from: " + request.from);
-    server.acceptedPrepares[request.v][request.n][request.from].push(request);
-  }
-};
-
-var handleCommitRequest = function(model, server, request) {
-  if (server.state != SERVER_STATE.CHANGING_VIEW) {
-    // TODO: check view of commit against view of server
-    server.receivedCommitRequests[request.v] = server.receivedCommitRequests[request.v] || {};
-    server.receivedCommitRequests[request.v][request.n] = server.receivedCommitRequests[request.v][request.n] || makePeerArrays();
-    console.log("received commit request at server " + server.id + ".");
-    server.receivedCommitRequests[request.v][request.n][request.from].push(request);
-  }
-};
-
-var handleCheckpointRequest = function(model, server, request) {
-  // TODO
 };
 
 var handleViewChangeRequest = function(model, server, request) {
@@ -512,57 +562,225 @@ var handleViewChangeRequest = function(model, server, request) {
   updateHighestViewChangeReceived(server, request.v);
 };
 
-var handleNewViewRequest = function(model, server, request) {
-  server.viewChangeAlarm = util.Inf;
-  server.view = request.v;
-  server.state = SERVER_STATE.BACKUP;
-  server.viewChangeAttempt = 1;
+/**
+ * Helper function to get the number of unique peers that received a message
+ * of type VIEW_CHANGE.
+ */
+var getUniqueNumViewChangeRequestsReceived = function(peerViewChangeRequests) {
+  if (peerViewChangeRequests == undefined) {
+    return 0;
+  }
+  var count = 0;
+  peerViewChangeRequests.forEach(function(requests) {
+    if (requests.length !== 0 &&
+        requests[0].type == MESSAGE_TYPE.VIEW_CHANGE) {
+      count += 1;
+    }
+  }, count);
+  return count;
 };
 
-var handleMessage = function(model, server, message) {
-  if (message.type == MESSAGE_TYPE.VIEW_CHANGE) {
-    if (message.direction == 'request') {
-      handleViewChangeRequest(model, server, message);
+rules.sendNewView = function(model, server, peer) {
+  server.newViewRequestsSent[server.highestViewChangeReceived] = server.newViewRequestsSent[server.highestViewChangeReceived] || makePeerArrays();
+
+  if ((getUniqueNumViewChangeRequestsReceived(
+         server.viewChangeRequestsReceived[server.highestViewChangeReceived]
+       ) >= (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1)) &&
+      (server.id == (server.highestViewChangeReceived % NUM_SERVERS)) &&
+      (server.newViewRequestsSent[server.highestViewChangeReceived][peer].length === 0)) {
+
+    var message = {
+      from: server.id,
+      to: peer,
+      type: MESSAGE_TYPE.NEW_VIEW,
+      v: server.highestViewChangeReceived,
+      V: server.viewChangeRequests
+    };
+    sendRequest(model, message);
+
+    server.view = server.highestViewChangeReceived;
+    /* Even though this node is going to be PRIMARY next, we first set it to
+     * BACKUP so that the becomePrimary function is the only function that
+     * can set nodes to a PRIMARY state. */
+    server.state = NODE_STATE.BACKUP;
+    server.newViewRequestsSent[server.highestViewChangeReceived][peer].push(message);
+  }
+};
+
+var handleNewViewRequest = function(model, server, request) {
+  if (server.queuedClientRequests === 0) {
+    server.viewChangeAlarm = util.Inf;
+  } else {
+    /* If we're waiting for a client request to be processed, set a new
+     * timeout. */
+    server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+  }
+  server.view = request.v;
+  server.state = NODE_STATE.BACKUP;
+  server.viewChangeAttempt = 1;
+  /* TODO: the sequence number should be reset upon entering a new view.
+   * This is causing problems now, for now just let it strictly increase. */
+  //server.lastUsedSequenceNumber = -1;
+};
+
+rules.sendCheckpoint = function(model, server, peer) {
+  // TODO
+};
+
+/* Check if the server should be marked as primary. Note that changing
+ * the server's state to 'primary' does not change anything in terms of
+ * how it responds to requests when compared to those of type 'backup'.
+ * The primary designation is only used to differentiate the primary
+ * server in the visual display, e.g. using the getLeader function. */
+rules.becomePrimary = function(model, server) {
+  var count = 0;
+  for (var i = 0; i < model.servers.length; i++) {
+    if ((model.servers[i].view % NUM_SERVERS) == server.id) {
+      count += 1;
     }
   }
-  if (message.type == MESSAGE_TYPE.NEW_VIEW) {
-    if (message.direction == 'request') {
-      handleNewViewRequest(model, server, message);
+  if (count >= (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1) &&
+      server.state == NODE_STATE.BACKUP) { // Make sure the server is not NODE_STATE.CHANGING_VIEW.
+    var oldPrimary = pbft.getLeader();
+    if (oldPrimary !== null) {
+      oldPrimary.state = NODE_STATE.BACKUP;
     }
+    server.state = NODE_STATE.PRIMARY;
+  }
+}
+
+var handleCheckpointRequest = function(model, server, request) {
+  // TODO
+};
+
+var handleClientRequestRequest = function(model, server, request) {
+  // TODO
+}
+
+var handleClientReplyRequest = function(model, server, request) {
+  // TODO
+}
+
+var handleServerMessage = function(model, server, message) {
+  if (message.type == MESSAGE_TYPE.CLIENT_REQUEST) {
+    handleClientRequestRequest(model, server, message);
   }
   if (message.type == MESSAGE_TYPE.PRE_PREPARE) {
-    if (message.direction == 'request') {
-      handlePrePrepareRequest(model, server, message);
-    }
+    handlePrePrepareRequest(model, server, message);
   }
   if (message.type == MESSAGE_TYPE.PREPARE) {
-    if (message.direction == 'request') {
-      handlePrepareRequest(model, server, message);
-    }
+    handlePrepareRequest(model, server, message);
   }
   if (message.type == MESSAGE_TYPE.COMMIT) {
-    if (message.direction == 'request') {
-      handleCommitRequest(model, server, message);
+    handleCommitRequest(model, server, message);
+  }
+  if (message.type == MESSAGE_TYPE.VIEW_CHANGE) {
+    handleViewChangeRequest(model, server, message);
+  }
+  if (message.type == MESSAGE_TYPE.NEW_VIEW) {
+    handleNewViewRequest(model, server, message);
+  }
+  if (message.type == MESSAGE_TYPE.CHECKPOINT) {
+    handleCheckpointRequest(model, server, message);
+  }
+}
+
+var handleClientMessage = function(model, server, message) {
+  if (message.type == MESSAGE_TYPE.CLIENT_REPLY) {
+    handleClientReplyRequest(model, server, message);
+  }
+}
+
+var handleMessage = function(model, server, message) {
+  switch(serverIdToState(server.id)) {
+    case NODE_STATE.BACKUP:
+    case NODE_STATE.PRIMARY:
+    case NODE_STATE.CHANGING_VIEW: {
+      /* The primary and backup are treated exactly the same
+       * when handling requests. Each server has their own local
+       * view of who the primary is, based on their view number. */
+      handleServerMessage(model, server, message);
+      break;
+    }
+    case NODE_STATE.CLIENT: {
+      handleClientMessage(model, server, message);
+      break;
+    }
+    default: {
+      /* We do nothing for crashed or unknown servers. */
+      break;
     }
   }
 };
+
+var executeServerRules = function(model, server) {
+  rules.startNewViewChange(model, server);
+  rules.startViewChangeTimeout(model, server);
+  rules.becomePrimary(model, server);
+  rules.startPrePrepare(model, server);
+  rules.startCommit(model, server);
+  rules.addCommitsToLog(model, server);
+}
+
+var executeClientRules = function(model, server) {
+  // TODO
+}
+
+var executeRules = function(model, server) {
+  switch(server.state) {
+    case NODE_STATE.PRIMARY:
+    case NODE_STATE.BACKUP:
+    case NODE_STATE.CHANGING_VIEW: {
+      executeServerRules(model, server);
+      break;
+    }
+    case NODE_STATE.CLIENT: {
+      executeClientRules(model, server);
+      break;
+    }
+    default: {
+      break;
+    }
+  }
+}
+
+var sendServerMessages = function(model, server, peer) {
+  rules.sendPrePrepare(model, server, peer);
+  rules.sendPrepares(model, server, peer);
+  rules.sendCommits(model, server, peer);
+  rules.sendViewChange(model, server, peer);
+  rules.sendNewView(model, server, peer);
+  rules.sendCheckpoint(model, server, peer);
+}
+
+var sendClientMessages = function(model, server, peer) {
+  rules.sendClientReply(model, server, peer);
+}
+
+var sendMessages = function(model, server, peer) {
+  switch(model.servers[peer].state) {
+    case NODE_STATE.PRIMARY:
+    case NODE_STATE.BACKUP:
+    case NODE_STATE.CHANGING_VIEW: {
+      sendServerMessages(model, server, peer);
+      break;
+    }
+    case NODE_STATE.CLIENT: {
+      sendClientMessages(model, server, peer);
+      break;
+    }
+    default: {
+      break;
+    }
+  }
+}
 
 // Public function.
 pbft.update = function(model) {
   model.servers.forEach(function(server) {
-    rules.startNewViewChange(model, server);
-    rules.startViewChangeTimeout(model, server);
-    rules.becomePrimary(model, server);
-    rules.startPrePrepare(model, server);
-    rules.startCommit(model, server);
-    rules.addCommitsToLog(model, server);
+    executeRules(model, server);
     server.peers.forEach(function(peer) {
-      rules.sendPrePrepare(model, server, peer);
-      rules.sendPrepares(model, server, peer);
-      rules.sendCommits(model, server, peer);
-      rules.sendCheckpoint(model, server, peer);
-      rules.sendViewChange(model, server, peer);
-      rules.sendNewView(model, server, peer);
+      sendMessages(model, server, peer);
     });
   });
   var deliver = [];
@@ -584,22 +802,22 @@ pbft.update = function(model) {
 };
 
 // Public function.
-pbft.stop = function(/* TODO */) {
+pbft.stop = function(model, server) {
+  server.state = NODE_STATE.CRASHED;
+};
+
+// Public function.
+pbft.resume = function(model, server) {
   // TODO
 };
 
 // Public function.
-pbft.resume = function(/* TODO */) {
+pbft.resumeAll = function(model) {
   // TODO
 };
 
 // Public function.
-pbft.resumeAll = function(/* TODO */) {
-  // TODO
-};
-
-// Public function.
-pbft.restart = function(/* TODO */) {
+pbft.restart = function(model, server) {
   // TODO
 };
 
@@ -611,33 +829,35 @@ pbft.drop = function(model, message) {
 };
 
 // Public function.
-pbft.timeout = function(/* TODO */) {
-  // TODO
+pbft.timeout = function(model, server) {
+  server.viewChangeAlarm = model.time;
+  rules.startNewViewChange(model, server);
 };
 
 var clientMessageNumber = 0;
 
-// Public function.
-// TODO: send timestamp and client encryption here
-// TODO: client awareness, and forward messages from client to correct primary
-// TODO: client must accept f + 1 valid replies before accepting
 pbft.clientRequest = function(model, server, t) {
   server.viewChangeAlarm = makeViewChangeAlarm(model.time);
-  // Assume client decided to multicast the request right away, without waiting
-  // for a timeout after sending it to what it believed to be the primary.
-  // TODO: client should only multicast after waiting for a timeout to expire
-  //       after receiving no response from primary.
-  server.peers.forEach(function(peer) {
-    // When client multicasts to a backup, the backup starts a timeout for
-    // receiving an RPC from the current primary.
 
-    // We just overwrite the previous timeout here with the more recent one
-    // (for when multiple client requests are made before the timeout expires).
+  // TODO: client should only multicast after waiting for a timeout to expire
+  //  after receiving no response from primary.
+
+  /* Assume client decided to multicast the request right away, without waiting
+   * for a timeout after sending it to what it believed to be the primary. */
+  server.peers.forEach(function(peer) {
+    if (model.servers[peer].state === NODE_STATE.CLIENT) {
+      return;
+    }
+
+    /* Client does nothing. */
+    /* When client multicasts to a backup, the backup starts a timeout for
+     * receiving an RPC from the current primary. We just overwrite the previous
+     * timeout here with the more recent one (for when multiple client requests
+     * are made before the timeout expires). */
     model.servers[peer].viewChangeAlarm = makeViewChangeAlarm(model.time);
     model.servers[peer].queuedClientRequests.push(clientMessageNumber);
   });
   clientMessageNumber += 1;
-  console.log("clientMessageNumber: " + clientMessageNumber);
 };
 
 // Public function.
@@ -712,8 +932,8 @@ var arcSpec = function(spec, fraction) {
 var logsSpec = {
   x: 420,
   y: 50,
-  width: 60 * pbft.NUM_SERVERS,
-  height: 54 * pbft.NUM_SERVERS,
+  width: 60 * NUM_SERVERS,
+  height: 54 * NUM_SERVERS,
 };
 
 var ringSpec = {
@@ -722,9 +942,24 @@ var ringSpec = {
   r: 150,
 };
 
-var serverSpec = function(id) {
-  var coord = util.circleCoord((id) / pbft.NUM_SERVERS,
-                               ringSpec.cx, ringSpec.cy, ringSpec.r);
+var pbftLayoutCoord = function(frac, state, cx, cy, r) {
+  if (state !== NODE_STATE.CLIENT) {
+    return {
+      x: (cx - r) + (r - r*Math.cos(2*Math.PI*frac)),
+      y: cy - r*Math.sin(2*Math.PI*frac),
+    };
+  }
+  else {
+    return {
+      x: 50,
+      y: 75,
+    };
+  }
+};
+
+var serverSpec = function(id, model) {
+  var coord = pbftLayoutCoord((id + 1) / (pbft.NUM_NODES - NUM_CLIENTS), model.servers[id].state,
+                              ringSpec.cx, ringSpec.cy, ringSpec.r);
   return {
     cx: coord.x,
     cy: coord.y,
@@ -734,9 +969,9 @@ var serverSpec = function(id) {
 
 var MESSAGE_RADIUS = 8;
 
-var messageSpec = function(from, to, frac) {
-  var fromSpec = serverSpec(from);
-  var toSpec = serverSpec(to);
+var messageSpec = function(from, to, frac, model) {
+  var fromSpec = serverSpec(from, model);
+  var toSpec = serverSpec(to, model);
   // adjust frac so you start and end at the edge of servers
   var totalDist  = Math.sqrt(Math.pow(0.01 + toSpec.cx - fromSpec.cx, 2) +
                              Math.pow(0.01 + toSpec.cy - fromSpec.cy, 2));
@@ -749,9 +984,9 @@ var messageSpec = function(from, to, frac) {
   };
 };
 
-var messageArrowSpec = function(from, to, frac) {
-  var fromSpec = serverSpec(from);
-  var toSpec = serverSpec(to);
+var messageArrowSpec = function(from, to, frac, model) {
+  var fromSpec = serverSpec(from, model);
+  var toSpec = serverSpec(to, model);
   // adjust frac so you start and end at the edge of servers
   var totalDist  = Math.sqrt(Math.pow(0.01 + toSpec.cx - fromSpec.cx, 2) +
                              Math.pow(0.01 + toSpec.cy - fromSpec.cy, 2));
@@ -794,7 +1029,7 @@ pbft.getLeader = function() {
   var leader = null;
   var v = 0;
   state.current.servers.forEach(function(server) {
-    if (server.state == SERVER_STATE.PRIMARY &&
+    if (server.state == NODE_STATE.PRIMARY &&
         server.view > v) {
         leader = server;
         v = server.view;
@@ -825,7 +1060,7 @@ var serverModal = function(model, server) {
     .append($('<dl class="dl-horizontal"></dl>')
       .append(li('state', server.state))
       .append(li('currentView', server.view))
-      .append(li('nextSequenceNumber', server.nextSequenceNumber))
+      .append(li('lastUsedSequenceNumber', server.lastUsedSequenceNumber))
       .append(li('viewChangeAlarm', util.relTime(server.viewChangeAlarm, model.time)))
       .append($('<dt>peers</dt>'))
       .append($('<dd></dd>').append(peerTable))
@@ -915,7 +1150,7 @@ pbft.render.servers = function(serversSame, svg) {
   state.current.servers.forEach(function(server) {
     var serverNode = $('#server-' + server.id, svg);
     $('path', serverNode)
-      .attr('d', arcSpec(serverSpec(server.id),
+      .attr('d', arcSpec(serverSpec(server.id, state.current),
         util.clamp((server.viewChangeAlarm - state.current.time) /
                     (VIEW_CHANGE_TIMEOUT * 2),
                     0, 1)));
@@ -963,7 +1198,7 @@ pbft.render.servers = function(serversSame, svg) {
 // Public API.
 pbft.appendServerInfo = function(state, svg) {
   state.current.servers.forEach(function(server) {
-    var s = serverSpec(server.id);
+    var s = serverSpec(server.id, state.current);
     $('#servers', svg).append(
       util.SVG('g')
         .attr('id', 'server-' + server.id)
@@ -971,8 +1206,8 @@ pbft.appendServerInfo = function(state, svg) {
         .append(util.SVG('text')
                   .attr('class', 'serverid')
                   .text('S' + server.id)
-                  .attr(util.circleCoord((server.id) / pbft.NUM_SERVERS,
-                                          ringSpec.cx, ringSpec.cy, ringSpec.r + 50)))
+                  .attr(pbftLayoutCoord((server.id + 1) / NUM_SERVERS, server.state,
+                                        ringSpec.cx, ringSpec.cy, ringSpec.r + 50)))
         .append(util.SVG('a')
           .append(util.SVG('circle')
                     .attr('class', 'background')
@@ -1013,7 +1248,7 @@ pbft.render.logs = function(svg) {
     util.SVG('rect')
       .attr('id', 'logsbg')
       .attr(logsSpec));
-  var height = (logsSpec.height - INDEX_HEIGHT) / pbft.NUM_SERVERS;
+  var height = (logsSpec.height - INDEX_HEIGHT) / NUM_SERVERS;
   var leader = pbft.getLeader();
   var indexSpec = {
     x: logsSpec.x + LABEL_WIDTH + logsSpec.width * 0.05,
@@ -1024,7 +1259,7 @@ pbft.render.logs = function(svg) {
   var indexes = util.SVG('g')
     .attr('id', 'log-indexes');
   logsGroup.append(indexes);
-  var logSize = 5;
+  var logSize = NUM_SERVERS;
   for (var index = 1; index <= logSize; ++index) {
     var indexEntrySpec = {
       x: indexSpec.x + (index - 0.5) * indexSpec.width / (logSize + 1),
@@ -1038,11 +1273,15 @@ pbft.render.logs = function(svg) {
           .text(index));
   }
   state.current.servers.forEach(function(server) {
+    if (server.state === NODE_STATE.CLIENT) {
+      return;
+    }
+
     var logSpec = {
       x: logsSpec.x + LABEL_WIDTH - logsSpec.width * 0.08,
-                                              /* Display was built assuming servers ids
-                                               * start at one. For PBFT they start at 0,
-                                               * so we add 1 to it. */
+                                              /* Original display for Raft was built assuming
+                                               * server ids start at one, not zero. For PBFT
+                                               * they start at 0, so we add 1 to it here. */
       y: logsSpec.y + INDEX_HEIGHT + height * (server.id + 1) - 5*height/6,
       width: logsSpec.width * 0.9,
       height: 2*height/3,
@@ -1074,7 +1313,7 @@ pbft.render.logs = function(svg) {
         log.append(pbft.render.entry(
              logEntrySpec(index),
              entry,
-             index <= server.nextSequenceNumber));
+             index <= server.lastUsedSequenceNumber));
     });
     if (leader !== null && leader != server) {
       // log.append(
@@ -1146,7 +1385,7 @@ pbft.render.messages = function(messagesSame, svg) {
   state.current.messages.forEach(function(message, i) {
     var s = messageSpec(message.from, message.to,
                         (state.current.time - message.sendTime) /
-                        (message.recvTime - message.sendTime));
+                        (message.recvTime - message.sendTime), state.current);
     $('#message-' + i + ' circle', messagesGroup)
       .attr(s);
     var dir = $('#message-' + i + ' path.message-direction', messagesGroup);
@@ -1155,7 +1394,7 @@ pbft.render.messages = function(messagesSame, svg) {
          .attr('d',
            messageArrowSpec(message.from, message.to,
                                  (state.current.time - message.sendTime) /
-                                 (message.recvTime - message.sendTime)));
+                                 (message.recvTime - message.sendTime), state.current));
     } else {
       dir.attr('style', '').attr('d', 'M 0,0'); // clear
     }
