@@ -11,7 +11,7 @@ var paxos = {};
 
   /* Begin paxos algorithm logic */
 
-  // Configure these variables to define the number of proposers, accepters 
+  // Configure these variables to define the number of proposers, accepters
   // and learners in the consensus.
   paxos.NUM_CLIENTS = 1;
   paxos.NUM_PROPOSERS = 2;
@@ -343,7 +343,7 @@ var paxos = {};
         //
         // The initial acceptor.promisedTerm is set to '-1' so this replacement
         // is guaranteed to happen if there was a legit accepted value.
-        // 
+        //
         // For Acceptors, previouslyAcceptedTerm and previouslyAcceptedValue
         // should be set/unset together.
         if (message.previouslyAcceptedTerm > server.largestAcceptedTerm) {
@@ -357,9 +357,9 @@ var paxos = {};
     // Accept requests sent, waiting on replies.
     if (server.phase === PROPOSER_PHASE.WAIT_ACCEPTED) {
       if (message.type === MESSAGE_TYPE.ACCEPTED) {
-        // According to phase 2b on https://en.wikipedia.org/wiki/Paxos_(computer_science), 
+        // According to phase 2b on https://en.wikipedia.org/wiki/Paxos_(computer_science),
         // ACCEPTED replies will only be sent if acceptor has truly accepted the request.
-        // 
+        //
         // To elaborate a bit further, if acceptor has previously promised another value with
         // term greater than this proposer's term, it would simply ignore the accept request.
         // Therefore, we can assume that upon receiving an ACCEPTED message, the proposer
@@ -414,7 +414,7 @@ var paxos = {};
         // Server has quorum. First fire off the accept requests, then enter
         // next phase to wait for accepted responses.
         //
-        // The order of operation does not really matter here due to the 
+        // The order of operation does not really matter here due to the
         // fact that this method is executed each frame and race condition
         // becomes impossible.
         server.peers.forEach(function (peer) {
