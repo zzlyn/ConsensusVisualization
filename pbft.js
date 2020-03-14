@@ -238,6 +238,18 @@ rules.startPrePrepare = function(model, server) {
   }
 };
 
+// Makes message digest a bit more realistic and fancier.
+var hashCode = function(m) {
+  var hash = 0;
+  if (m.length == 0) return hash;
+  for (i = 0; i < m.length; i++) {
+      char = m.charCodeAt(i);
+      hash = ((hash<<5)-hash)+char;
+      hash = hash & hash; // Convert to 32bit integer
+  }
+  return hash;
+}
+
 rules.sendPrePrepare = function(model, server, peer) {
   server.clientMessagesToSend[server.view] = server.clientMessagesToSend[server.view] || makePeerArrays();
   server.prePrepareRequestsSent[server.view] = server.prePrepareRequestsSent[server.view] || {};
@@ -247,15 +259,17 @@ rules.sendPrePrepare = function(model, server, peer) {
   if ((server.id == (server.view % NUM_SERVERS)) &&
       (server.clientMessagesToSend[server.view][peer].length !== 0) &&
       (server.prePrepareRequestsSent[server.view][server.lastUsedSequenceNumber][peer].length === 0)) {
+    var message = server.clientMessagesToSend[server.view][peer][0];
     var request = {
       from: server.id,
       to: peer,
       type: MESSAGE_TYPE.PRE_PREPARE,
       v: server.view,
       n: server.lastUsedSequenceNumber,
-      d: 0, // TODO: this should create a "digest" based on m
+      valid: true, // This field indicates if the message is, from an omniscient point of view, trustworthy.
+      d: hashCode(message), // Digest of the message which is part of the validation on receiver.
       /* The message content is sent at the same time as the pre-prepare. */
-      m: server.clientMessagesToSend[server.view][peer][0],
+      m: message,
     };
     server.prePrepareRequestsSent[server.view][server.lastUsedSequenceNumber][peer].push(request);
     server.clientMessagesToSend[server.view][peer].shift();
@@ -267,7 +281,17 @@ var handlePrePrepareRequest = function(model, server, request) {
   server.acceptedPrePrepares[request.v] = server.acceptedPrePrepares[request.v] || {};
   server.acceptedPrePrepares[request.v][request.n] = server.acceptedPrePrepares[request.v][request.n] || [];
 
-  // TODO: valdity check before pushing the pre-prepare.
+  // Valdity check before pushing the pre-prepare message.
+  if (!request.valid) {
+    console.log(`Preprepare request ${request} rejected because it is compromised.`);
+    return;
+  }
+  if (request.d !== hashCode(request.m)) {
+    console.log(`Preprepare request ${request} rejected due to wrong digest. 
+                Expecting: ${hashCode(request.m)}; Got: ${request.d}.`);
+    return;
+  }
+
   server.acceptedPrePrepares[request.v][request.n].push(request);
 };
 
@@ -296,7 +320,8 @@ rules.sendPrepares = function(model, server, peer) {
         type: MESSAGE_TYPE.PREPARE,
         v: server.view,
         n: n,
-        d: 0, // TODO: this "digest" should be computed
+        valid: true,
+        d: requests[0].d, // Use the pre-prepare message's digest.
       };
       sendRequest(model, request);
       server.sentPrepareRequests[server.view][n][peer].push(request);
@@ -304,11 +329,38 @@ rules.sendPrepares = function(model, server, peer) {
   }
 };
 
+// Returns the latest client message server has received
+// in a preprepare request or null if it never got any.
+var extractLatestMessage = function(server) {
+  // First two conditions are sanity checks.
+  if (!(request.v in server.acceptedPrePrepares) ||
+      !(request.n in server.acceptedPrePrepares[request.v]) ||
+      !(0 in server.acceptedPrePrepares[request.v][request.n])) {
+    return null;
+  }
+  return server.acceptedPrePrepares[request.v][request.n][0].m;
+}
+
 var handlePrepareRequest = function(model, server, request) {
   server.acceptedPrepares[request.v] = server.acceptedPrepares[request.v] || {};
   server.acceptedPrepares[request.v][request.n] = server.acceptedPrepares[request.v][request.n] || makePeerArrays();
 
-  // TODO: validity check before pushing the prepare.
+  // Valdity check before pushing the prepare message.
+  if (!request.valid) {
+    console.log(`Prepare request ${request} rejected because it is compromised.`);
+    return;
+  }
+  var msg = extractLatestMessage(server);
+  if (msg === null) {
+    console.log("Server received prepare request without any preprepared messages.");
+    return;
+  }
+  if (request.d !== hashCode(msg)) {
+    console.log(`Prepare request ${request} rejected due to wrong digest. 
+                Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
+    return;
+  }
+
   server.acceptedPrepares[request.v][request.n][request.from].push(request);
 };
 
@@ -366,7 +418,8 @@ rules.sendCommits = function(model, server, peer) {
         type: MESSAGE_TYPE.COMMIT,
         v: server.view,
         n: n,
-        d: 0, // TODO: recompute D(m) here, don't use request.d
+        valid: true,
+        d: hashCode(extractLatestMessage(server)), // Recompute digest.
       };
       /* Sequence number of the request must match the sequence numbeer we
        * are indexing the `preparedMessagesToCommit` object by. */
@@ -381,7 +434,22 @@ var handleCommitRequest = function(model, server, request) {
   server.receivedCommitRequests[request.v] = server.receivedCommitRequests[request.v] || {};
   server.receivedCommitRequests[request.v][request.n] = server.receivedCommitRequests[request.v][request.n] || makePeerArrays();
 
-  // TODO: validity check before pushing the commit request.
+  // Validity check before pushing the commit request.
+  if (!request.valid) {
+    console.log(`Commit request ${request} rejected because it is compromised.`);
+    return;
+  }
+  var msg = extractLatestMessage(server);
+  if (msg === null) {
+    console.log("Server received commit request without any preprepared messages.");
+    return;
+  }
+  if (request.d !== hashCode(msg)) {
+    console.log(`Commit request ${request} rejected due to wrong digest. 
+                Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
+    return;
+  }
+
   server.receivedCommitRequests[request.v][request.n][request.from].push(request);
 };
 
