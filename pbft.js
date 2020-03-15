@@ -266,8 +266,8 @@ rules.sendPrePrepare = function(model, server, peer) {
       type: MESSAGE_TYPE.PRE_PREPARE,
       v: server.view,
       n: server.lastUsedSequenceNumber,
-      valid: true, // This field indicates if the message is, from an omniscient point of view, trustworthy.
-      d: hashCode(message), // Digest of the message which is part of the validation on receiver.
+      /* Digest of the message which is part of the validation on receiver. */
+      d: hashCode(message),
       /* The message content is sent at the same time as the pre-prepare. */
       m: message,
     };
@@ -281,11 +281,7 @@ var handlePrePrepareRequest = function(model, server, request) {
   server.acceptedPrePrepares[request.v] = server.acceptedPrePrepares[request.v] || {};
   server.acceptedPrePrepares[request.v][request.n] = server.acceptedPrePrepares[request.v][request.n] || [];
 
-  // Valdity check before pushing the pre-prepare message.
-  if (!request.valid) {
-    console.log(`Preprepare request ${request} rejected because it is compromised.`);
-    return;
-  }
+  // Signature check before pushing the pre-prepare message.
   if (request.d !== hashCode(request.m)) {
     console.log(`Preprepare request ${request} rejected due to wrong digest. 
                 Expecting: ${hashCode(request.m)}; Got: ${request.d}.`);
@@ -320,7 +316,6 @@ rules.sendPrepares = function(model, server, peer) {
         type: MESSAGE_TYPE.PREPARE,
         v: server.view,
         n: n,
-        valid: true,
         d: requests[0].d, // Use the pre-prepare message's digest.
       };
       sendRequest(model, request);
@@ -345,11 +340,7 @@ var handlePrepareRequest = function(model, server, request) {
   server.acceptedPrepares[request.v] = server.acceptedPrepares[request.v] || {};
   server.acceptedPrepares[request.v][request.n] = server.acceptedPrepares[request.v][request.n] || makePeerArrays();
 
-  // Valdity check before pushing the prepare message.
-  if (!request.valid) {
-    console.log(`Prepare request ${request} rejected because it is compromised.`);
-    return;
-  }
+  // Signature check before pushing the prepare message.
   var msg = extractLatestMessage(server);
   if (msg === null) {
     console.log("Server received prepare request without any preprepared messages.");
@@ -418,7 +409,6 @@ rules.sendCommits = function(model, server, peer) {
         type: MESSAGE_TYPE.COMMIT,
         v: server.view,
         n: n,
-        valid: true,
         d: hashCode(extractLatestMessage(server)), // Recompute digest.
       };
       /* Sequence number of the request must match the sequence numbeer we
@@ -434,11 +424,7 @@ var handleCommitRequest = function(model, server, request) {
   server.receivedCommitRequests[request.v] = server.receivedCommitRequests[request.v] || {};
   server.receivedCommitRequests[request.v][request.n] = server.receivedCommitRequests[request.v][request.n] || makePeerArrays();
 
-  // Validity check before pushing the commit request.
-  if (!request.valid) {
-    console.log(`Commit request ${request} rejected because it is compromised.`);
-    return;
-  }
+  // Signature check before pushing the commit request.
   var msg = extractLatestMessage(server);
   if (msg === null) {
     console.log("Server received commit request without any preprepared messages.");
