@@ -242,7 +242,7 @@ rules.startPrePrepare = function(model, server) {
 var hashCode = function(m) {
   var hash = 0;
   if (m.length == 0) return hash;
-  for (i = 0; i < m.length; i++) {
+  for (var i = 0; i < m.length; i++) {
       char = m.charCodeAt(i);
       hash = ((hash<<5)-hash)+char;
       hash = hash & hash; // Convert to 32bit integer
@@ -325,15 +325,16 @@ rules.sendPrepares = function(model, server, peer) {
 };
 
 // Returns the latest client message server has received
-// in a preprepare request or null if it never got any.
-var extractLatestMessage = function(server) {
+// in a preprepare request given the view number and
+// sequence number. Returns null if it never got any.
+var extractLatestMessage = function(server, v, n) {
   // First two conditions are sanity checks.
-  if (!(request.v in server.acceptedPrePrepares) ||
-      !(request.n in server.acceptedPrePrepares[request.v]) ||
-      !(0 in server.acceptedPrePrepares[request.v][request.n])) {
+  if (!(v in server.acceptedPrePrepares) ||
+      !(n in server.acceptedPrePrepares[v]) ||
+      !(0 in server.acceptedPrePrepares[v][n])) {
     return null;
   }
-  return server.acceptedPrePrepares[request.v][request.n][0].m;
+  return server.acceptedPrePrepares[v][n][0].m;
 }
 
 var handlePrepareRequest = function(model, server, request) {
@@ -341,7 +342,7 @@ var handlePrepareRequest = function(model, server, request) {
   server.acceptedPrepares[request.v][request.n] = server.acceptedPrepares[request.v][request.n] || makePeerArrays();
 
   // Signature check before pushing the prepare message.
-  var msg = extractLatestMessage(server);
+  var msg = extractLatestMessage(server, request.v, request.n);
   if (msg === null) {
     console.log("Server received prepare request without any preprepared messages.");
     return;
@@ -409,7 +410,7 @@ rules.sendCommits = function(model, server, peer) {
         type: MESSAGE_TYPE.COMMIT,
         v: server.view,
         n: n,
-        d: hashCode(extractLatestMessage(server)), // Recompute digest.
+        d: hashCode(extractLatestMessage(server, server.view, n)), // Recompute digest.
       };
       /* Sequence number of the request must match the sequence numbeer we
        * are indexing the `preparedMessagesToCommit` object by. */
@@ -425,7 +426,7 @@ var handleCommitRequest = function(model, server, request) {
   server.receivedCommitRequests[request.v][request.n] = server.receivedCommitRequests[request.v][request.n] || makePeerArrays();
 
   // Signature check before pushing the commit request.
-  var msg = extractLatestMessage(server);
+  var msg = extractLatestMessage(server, request.v, request.n);
   if (msg === null) {
     console.log("Server received commit request without any preprepared messages.");
     return;
