@@ -76,8 +76,16 @@ var serverIdToState = function (id) {
   return NODE_STATE.UNKNOWN;
 }
 
+pbft.makePeers = function(numPeers) {
+  var peers = [];
+  for (var j = 0; j < numPeers; j += 1) {
+    peers.push(j);
+  }
+  return peers;
+}
 
 var sendMessage = function(model, message) {
+  message.authentic = model.servers[message.from].authentic;
   message.sendTime = model.time;
   message.recvTime = (message.from == message.to) ? model.time + 1000 :
                      model.time + MIN_RPC_LATENCY +
@@ -141,8 +149,9 @@ pbft.server = function(id, peers) {
      * malicious servers that block the view change). */
     viewChangeAttempt: 1,
 
-    /* TODO: need to add a "key" to verify authenticity of the server. */
-    //key: "k." + id,
+    /* Flag to indicate whether this server will produce authentic messages, assuming
+     * peers can check the authenticity of the server based on the message. */
+    authentic: true,
 
     /* Client request messages get pushed to queuedClientRequests. This is a
      * FIFO queue of requests that the client has sent to this server, that this
@@ -252,14 +261,18 @@ rules.startPrePrepare = function(model, server) {
 
 // Makes message digest a bit more realistic and fancier.
 var hashCode = function(m) {
+  // Incoming message might be of type "number".
+  if (typeof m !== "string") {
+    m = m.toString();
+  }
   var hash = 0;
   if (m.length == 0) return hash;
   for (var i = 0; i < m.length; i++) {
-      char = m.charCodeAt(i);
+      var char = m.charCodeAt(i);
       hash = ((hash<<5)-hash)+char;
       hash = hash & hash; // Convert to 32bit integer
   }
-  return hash;
+  return hash.toString(); // We work with strings throughout to make things easier.
 }
 
 rules.sendPrePrepare = function(model, server, peer) {
@@ -295,8 +308,12 @@ var handlePrePrepareRequest = function(model, server, request) {
 
   // Signature check before pushing the pre-prepare message.
   if (request.d !== hashCode(request.m)) {
-    console.log(`Preprepare request ${request} rejected due to wrong digest. 
+    console.log(`Preprepare request ${request} rejected due to wrong digest.
                 Expecting: ${hashCode(request.m)}; Got: ${request.d}.`);
+    return;
+  }
+  if (!request.authentic) {
+    console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
 
@@ -360,8 +377,12 @@ var handlePrepareRequest = function(model, server, request) {
     return;
   }
   if (request.d !== hashCode(msg)) {
-    console.log(`Prepare request ${request} rejected due to wrong digest. 
+    console.log(`Prepare request ${request} rejected due to wrong digest.
                 Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
+    return;
+  }
+  if (!request.authentic) {
+    console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
 
@@ -444,8 +465,12 @@ var handleCommitRequest = function(model, server, request) {
     return;
   }
   if (request.d !== hashCode(msg)) {
-    console.log(`Commit request ${request} rejected due to wrong digest. 
+    console.log(`Commit request ${request} rejected due to wrong digest.
                 Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
+    return;
+  }
+  if (!request.authentic) {
+    console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
 
@@ -916,10 +941,29 @@ pbft.clientRequest = function(model) {
     timestamp: timestamp,
     value: "123",
     authentic: true,
-  });
+    });
   model.servers[client].clientRequestTimestamp = timestamp;
   model.servers[client].clientMulticastTimer = model.time + CLIENT_MULTICAST_TIMER;
 };
+/* Represents a server's key not being correct (e.g. a
+ * has a private key that its peers do not have a corresponding
+ * public key for). Any messages the server sends after this
+ * will be considered not authentic, i.e. not from a trusted server.*/
+pbft.invalidateAuthenticity = function(model, server) {
+  server.authentic = false;
+}
+
+pbft.reset = function(model, server) {
+  var i = server.id;
+  model.servers[i] = pbft.server(i, pbft.makePeers(pbft.NUM_NODES));
+}
+
+/* Represents a server that is not authentic being replaced
+ * by a fresh one that is. This involves resetting the state of the
+ * server completely. */
+pbft.becomeAuthentic = function(model, server) {
+  pbft.reset(model, server);
+}
 
 pbft.clientRequestTimedOut = function(model,server){
   if(server.clientMulticastTimer <= model.time){//timed out 
@@ -1104,6 +1148,8 @@ var serverActions = [
   ['restart', pbft.restart],
   ['time out', pbft.timeout],
   ['request', pbft.clientRequest],
+  ['invalidate authenticity', pbft.invalidateAuthenticity],
+  ['become authentic', pbft.becomeAuthentic],
 ];
 
 var messageActions = [
@@ -1166,7 +1212,7 @@ var serverModal = function(model, server) {
   m.modal();
 };
 
-var messageModal = function(model, message) {
+var messageModal = function(model, message, mIndex) {
   var m = $('#modal-details');
   $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
   $('.modal-title', m).text(message.type + ' ' + message.direction);
@@ -1178,6 +1224,7 @@ var messageModal = function(model, message) {
       .append(li('to', 'S' + message.to))
       .append(li('sent', util.relTime(message.sendTime, model.time)))
       .append(li('deliver', util.relTime(message.recvTime, model.time)))
+      .append(`<dt>digest</dt><input id="message-digest-${mIndex}" type="text" class="client-input"><br>`)  // Modifiable message digest.
       .append(li('v', message.v))
       .append(li('n', message.n));
   if (message.type == 'RequestVote') {
@@ -1204,6 +1251,16 @@ var messageModal = function(model, message) {
   $('.modal-body', m)
     .empty()
     .append(fields);
+  // Fill in the value of modifiable message digest. This
+  // can only be done here after the list has been rendered.
+  var digestEntry = document.getElementById(`message-digest-${mIndex}`);
+  digestEntry.value = message.d;
+  // Bind message so that it is painted when user changes digest value.
+  digestEntry.bindMessage = message;
+  digestEntry.addEventListener("change", function(event) {
+    event.currentTarget.bindMessage.d = event.currentTarget.value;
+    event.currentTarget.bindMessage.digestModified = true;
+  })
   var footer = $('.modal-footer', m);
   footer.empty();
   messageActions.forEach(function(action) {
@@ -1251,10 +1308,16 @@ pbft.render.servers = function(serversSame, svg) {
     if (!serversSame) {
       $('text.view', serverNode).text(server.view);
       serverNode.attr('class', 'server ' + server.state);
+      var serverFill;
+      if (server.state == NODE_STATE.CRASHED) {
+        serverFill = 'grey';
+      } else if (!server.authentic) {
+        serverFill = '#c76561';
+      } else {
+        serverFill = viewColors[server.view % viewColors.length];
+      }
       $('circle.background', serverNode)
-        .attr('style', 'fill: ' +
-              (server.state == 'stopped' ? 'gray'
-                : viewColors[server.view % viewColors.length]));
+        .attr('style', 'fill: ' + serverFill);
       serverNode
         .unbind('click')
         .click(function() {
@@ -1441,13 +1504,19 @@ pbft.render.messages = function(messagesSame, svg) {
           .append(util.SVG('path').attr('class', 'message-direction'));
       if (message.direction == 'reply')
         a.append(util.SVG('path').attr('class', 'message-success'));
+      // We paint the message's inner circle black to represent
+      // its digest has been changed by user.
+      if (message.digestModified) {
+        var circle = a.context.children[0];
+        circle.style.fill = 'black';
+      }
       messagesGroup.append(a);
     });
     state.current.messages.forEach(function(message, i) {
       var messageNode = $('a#message-' + i, svg);
       messageNode
         .click(function() {
-          messageModal(state.current, message);
+          messageModal(state.current, message, i);
           return false;
         });
       if (messageNode.data('context'))
