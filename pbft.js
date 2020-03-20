@@ -240,14 +240,18 @@ rules.startPrePrepare = function(model, server) {
 
 // Makes message digest a bit more realistic and fancier.
 var hashCode = function(m) {
+  // Incoming message might be of type "number".
+  if (typeof m !== "string") {
+    m = m.toString();
+  }
   var hash = 0;
   if (m.length == 0) return hash;
   for (var i = 0; i < m.length; i++) {
-      char = m.charCodeAt(i);
+      var char = m.charCodeAt(i);
       hash = ((hash<<5)-hash)+char;
       hash = hash & hash; // Convert to 32bit integer
   }
-  return hash;
+  return hash.toString(); // We work with strings throughout to make things easier.
 }
 
 rules.sendPrePrepare = function(model, server, peer) {
@@ -1135,7 +1139,7 @@ var serverModal = function(model, server) {
   m.modal();
 };
 
-var messageModal = function(model, message) {
+var messageModal = function(model, message, mIndex) {
   var m = $('#modal-details');
   $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
   $('.modal-title', m).text(message.type + ' ' + message.direction);
@@ -1147,6 +1151,7 @@ var messageModal = function(model, message) {
       .append(li('to', 'S' + message.to))
       .append(li('sent', util.relTime(message.sendTime, model.time)))
       .append(li('deliver', util.relTime(message.recvTime, model.time)))
+      .append(`<dt>digest</dt><input id="message-digest-${mIndex}" type="text" class="client-input"><br>`)  // Modifiable message digest.
       .append(li('v', message.v))
       .append(li('n', message.n));
   if (message.type == 'RequestVote') {
@@ -1173,6 +1178,16 @@ var messageModal = function(model, message) {
   $('.modal-body', m)
     .empty()
     .append(fields);
+  // Fill in the value of modifiable message digest. This
+  // can only be done here after the list has been rendered.
+  var digestEntry = document.getElementById(`message-digest-${mIndex}`);
+  digestEntry.value = message.d;
+  // Bind message so that it is painted when user changes digest value.
+  digestEntry.bindMessage = message;
+  digestEntry.addEventListener("change", function(event) {
+    event.currentTarget.bindMessage.d = event.currentTarget.value;
+    event.currentTarget.bindMessage.digestModified = true;
+  })
   var footer = $('.modal-footer', m);
   footer.empty();
   messageActions.forEach(function(action) {
@@ -1402,13 +1417,19 @@ pbft.render.messages = function(messagesSame, svg) {
           .append(util.SVG('path').attr('class', 'message-direction'));
       if (message.direction == 'reply')
         a.append(util.SVG('path').attr('class', 'message-success'));
+      // We paint the message's inner circle black to represent
+      // its digest has been changed by user.
+      if (message.digestModified) {
+        var circle = a.context.children[0];
+        circle.style.fill = 'black';
+      }
       messagesGroup.append(a);
     });
     state.current.messages.forEach(function(message, i) {
       var messageNode = $('a#message-' + i, svg);
       messageNode
         .click(function() {
-          messageModal(state.current, message);
+          messageModal(state.current, message, i);
           return false;
         });
       if (messageNode.data('context'))
