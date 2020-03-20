@@ -251,3 +251,21 @@ util.resetStates = function(model){
 util.makeArrayOfArrays = function(length) {
   return Array.from({length: length}, () => []);
 }
+
+util.pbftGetClient = function(model){
+  var id;
+  model.servers.forEach(function(server){
+    if(server.state == "pbft_client")
+      id = server.id;
+  })
+  return id;
+}
+
+util.pbftGetReplicas = function(model){
+  var nonClients = [];
+  model.servers.forEach(function(server){
+    if(server.state != 'pbft_client')
+    nonClients.push(server.id);
+  })
+  return nonClients;
+}
