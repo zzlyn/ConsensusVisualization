@@ -578,17 +578,24 @@ rules.sendClientReply = function(model, server, peer) {
 }
 
 rules.startViewChangeTimeout = function(model, server) {
+  /* Only reset the timeout if it wasn't already running. This prevents
+   * repeatedly restarting over and over. */
+  if (server.viewChangeAlarm !== util.Inf) {
+    return;
+  }
+
   /* If we're currently trying to change the view, and we've received one
    * valid view change request from every peer, we start the timeout again,
-   * until we receive a valid new view request from the new primary. */
-  if ((server.state == NODE_STATE.CHANGING_VIEW) &&
-      (getUniqueNumViewChangeRequestsReceived(
-         server.viewChangeRequestsReceived[server.view +
-                                           server.viewChangeAttempt]
-       ) >= ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1)) &&
-      /* Only reset the timeout if it wasn't already running. This prevents
-       * repeatedly restarting over and over. */
-      (server.viewChangeAlarm === util.Inf)) {
+   * active until we receive a valid new view request from the new primary. */
+  var viewChangeStarted = server.state == NODE_STATE.CHANGING_VIEW &&
+                          (getUniqueNumViewChangeRequestsReceived(
+                            server.viewChangeRequestsReceived[server.view +
+                                                              server.viewChangeAttempt]
+                           ) >= ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1));
+  /* If a message from the client is waiting to be processed, we will need to
+   * change view if the message is not processed fast enough. */
+  var clientMessageInQueue = server.queuedClientRequests.length !== 0;
+  if (viewChangeStarted || clientMessageInQueue) {
     server.viewChangeAlarm = makeViewChangeAlarm(model.time);
   }
 };
@@ -786,7 +793,7 @@ var handleClientMessage = function(model, server, message) {
 }
 
 var handleMessage = function(model, server, message) {
-  switch(serverIdToState(server.id)) {
+  switch(server.state) {
     case NODE_STATE.BACKUP:
     case NODE_STATE.PRIMARY:
     case NODE_STATE.CHANGING_VIEW: {
@@ -855,7 +862,9 @@ var sendMessages = function(model, server, peer) {
   switch(model.servers[peer].state) {
     case NODE_STATE.PRIMARY:
     case NODE_STATE.BACKUP:
-    case NODE_STATE.CHANGING_VIEW: {
+    case NODE_STATE.CHANGING_VIEW:
+    // Still send messages to crashed nodes
+    case NODE_STATE.CRASHED: {
       sendServerMessages(model, server, peer);
       break;
     }
@@ -900,21 +909,25 @@ pbft.update = function(model) {
 // Public function.
 pbft.stop = function(model, server) {
   server.state = NODE_STATE.CRASHED;
+  server.viewChangeAlarm = util.Inf;
 };
 
 // Public function.
 pbft.resume = function(model, server) {
-  // TODO
+  server.state = NODE_STATE.BACKUP;
 };
 
 // Public function.
 pbft.resumeAll = function(model) {
-  // TODO
+  model.servers.forEach(function(server) {
+    pbft.resume(model, server);
+  });
 };
 
 // Public function.
 pbft.restart = function(model, server) {
-  // TODO
+  server.state = NODE_STATE.BACKUP;
+  server.viewChangeAlarm = util.Inf;
 };
 
 // Public function.
