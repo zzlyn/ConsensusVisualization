@@ -20,7 +20,7 @@ var NUM_CLIENTS = 1;
 var NUM_TOLERATED_BYZANTINE_FAULTS = 1;
 
 //2f+1
-var MINIMAL_APPROVE = Math.floor((NUM_SERVERS-1)/3) + 1;
+var MINIMAL_APPROVE = 2 * Math.floor((NUM_SERVERS-1)/3) + 1;
 
 // Public variable, indicating how many nodes to draw.
 pbft.NUM_NODES = NUM_SERVERS + NUM_CLIENTS;
