@@ -70,8 +70,16 @@ var serverIdToState = function (id) {
   return NODE_STATE.UNKNOWN;
 }
 
+pbft.makePeers = function(numPeers) {
+  var peers = [];
+  for (var j = 0; j < numPeers; j += 1) {
+    peers.push(j);
+  }
+  return peers;
+}
 
 var sendMessage = function(model, message) {
+  message.authentic = model.servers[message.from].authentic;
   message.sendTime = model.time;
   message.recvTime = (message.from == message.to) ? model.time + 1000 :
                      model.time + MIN_RPC_LATENCY +
@@ -135,8 +143,9 @@ pbft.server = function(id, peers) {
      * malicious servers that block the view change). */
     viewChangeAttempt: 1,
 
-    /* TODO: need to add a "key" to verify authenticity of the server. */
-    //key: "k." + id,
+    /* Flag to indicate whether this server will produce authentic messages, assuming
+     * peers can check the authenticity of the server based on the message. */
+    authentic: true,
 
     /* Client request messages get pushed to queuedClientRequests. This is a
      * FIFO queue of requests that the client has sent to this server, that this
@@ -287,8 +296,12 @@ var handlePrePrepareRequest = function(model, server, request) {
 
   // Signature check before pushing the pre-prepare message.
   if (request.d !== hashCode(request.m)) {
-    console.log(`Preprepare request ${request} rejected due to wrong digest. 
+    console.log(`Preprepare request ${request} rejected due to wrong digest.
                 Expecting: ${hashCode(request.m)}; Got: ${request.d}.`);
+    return;
+  }
+  if (!request.authentic) {
+    console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
 
@@ -352,8 +365,12 @@ var handlePrepareRequest = function(model, server, request) {
     return;
   }
   if (request.d !== hashCode(msg)) {
-    console.log(`Prepare request ${request} rejected due to wrong digest. 
+    console.log(`Prepare request ${request} rejected due to wrong digest.
                 Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
+    return;
+  }
+  if (!request.authentic) {
+    console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
 
@@ -436,8 +453,12 @@ var handleCommitRequest = function(model, server, request) {
     return;
   }
   if (request.d !== hashCode(msg)) {
-    console.log(`Commit request ${request} rejected due to wrong digest. 
+    console.log(`Commit request ${request} rejected due to wrong digest.
                 Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
+    return;
+  }
+  if (!request.authentic) {
+    console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
 
@@ -893,6 +914,26 @@ pbft.timeout = function(model, server) {
   rules.startNewViewChange(model, server);
 };
 
+/* Represents a server's key not being correct (e.g. a
+ * has a private key that its peers do not have a corresponding
+ * public key for). Any messages the server sends after this
+ * will be considered not authentic, i.e. not from a trusted server.*/
+pbft.invalidateAuthenticity = function(model, server) {
+  server.authentic = false;
+}
+
+pbft.reset = function(model, server) {
+  var i = server.id;
+  model.servers[i] = pbft.server(i, pbft.makePeers(pbft.NUM_NODES));
+}
+
+/* Represents a server that is not authentic being replaced
+ * by a fresh one that is. This involves resetting the state of the
+ * server completely. */
+pbft.becomeAuthentic = function(model, server) {
+  pbft.reset(model, server);
+}
+
 var clientMessageNumber = 0;
 
 pbft.clientRequest = function(model, server, t) {
@@ -1077,6 +1118,8 @@ var serverActions = [
   ['restart', pbft.restart],
   ['time out', pbft.timeout],
   ['request', pbft.clientRequest],
+  ['invalidate authenticity', pbft.invalidateAuthenticity],
+  ['become authentic', pbft.becomeAuthentic],
 ];
 
 var messageActions = [
@@ -1227,10 +1270,16 @@ pbft.render.servers = function(serversSame, svg) {
     if (!serversSame) {
       $('text.view', serverNode).text(server.view);
       serverNode.attr('class', 'server ' + server.state);
+      var serverFill;
+      if (server.state == NODE_STATE.CRASHED) {
+        serverFill = 'grey';
+      } else if (!server.authentic) {
+        serverFill = '#c76561';
+      } else {
+        serverFill = viewColors[server.view % viewColors.length];
+      }
       $('circle.background', serverNode)
-        .attr('style', 'fill: ' +
-              (server.state == 'stopped' ? 'gray'
-                : viewColors[server.view % viewColors.length]));
+        .attr('style', 'fill: ' + serverFill);
       serverNode
         .unbind('click')
         .click(function() {
