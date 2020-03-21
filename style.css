@@ -105,18 +105,18 @@ svg .message.client_request {
 }
 
 svg .message.prepare_msg {
-  fill:   #008000; /*green*/
-  stroke: #008000;
+  fill:   #66c2a5;
+  stroke: #66c2a5;
 }
 
 svg .message.promise_msg {
-  fill:   #0000FF; /*blue*/
-  stroke: #0000FF;
+  fill:   #66c2a5;
+  stroke: #66c2a5;
 }
 
 svg .message.accept_msg {
-  fill:   #FF0000; /*red*/
-  stroke: #FF0000;
+  fill:   #fc8d62;
+  stroke: #fc8d62;
 }
 
 svg .message.nack {
@@ -125,8 +125,8 @@ svg .message.nack {
 }
 
 svg .message.accepted_msg {
-  fill:   #FFA500; /*orange*/
-  stroke: #FFA500;
+  fill:   #fc8d62;
+  stroke: #fc8d62;
 }
 
 svg .message.client_reply {

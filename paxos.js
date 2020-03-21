@@ -223,6 +223,7 @@ var paxos = {};
   var sendReply = function (model, request, reply) {
     reply.from = request.to;
     reply.to = request.from;
+    reply.direction = 'reply';
     sendMessage(model, reply);
   };
 
@@ -504,9 +505,8 @@ var paxos = {};
     // term check
     if (acceptMsg.term < server.promisedTerm) {
       // Send back NACK.
-      sendMessage(model, {
-        from: server.id,
-        to: acceptMsg.from,
+      sendReply
+      (model, acceptMsg, {
         type: MESSAGE_TYPE.NACK,
       });
       return;
@@ -537,6 +537,7 @@ var paxos = {};
       sendMessage(model, {
         from: server.id,
         to: peer,
+        direction: 'reply',
         type: MESSAGE_TYPE.ACCEPTED,
         term: server.acceptedTerm,
         value: server.acceptedValue,
@@ -577,6 +578,7 @@ var paxos = {};
         sendMessage(model, {
           from: message.to,
           to: util.groupServers(state.current)[0][0].id,
+          direction: 'reply',
           type: MESSAGE_TYPE.CLIENT_REPLY,
           value: server.learnedValue,
           term: server.term,
@@ -1213,8 +1215,9 @@ var paxos = {};
           .attr('title', message.type)
           .append(util.SVG('circle'))
           .append(util.SVG('path').attr('class', 'message-direction'));
-        if (message.direction == 'reply')
+        if (message.direction == 'reply'){
           a.append(util.SVG('path').attr('class', 'message-success'));
+        }
         messagesGroup.append(a);
       });
       state.current.messages.forEach(function (message, i) {
@@ -1256,18 +1259,22 @@ var paxos = {};
         (message.recvTime - message.sendTime), state.current);
       $('#message-' + i + ' circle', messagesGroup)
         .attr(s);
-      /*if (message.direction == 'reply') {
+      if (message.direction == 'reply') {
         var dlist = [];
+        // add this horizontal line in the circle (shows -ve ack)
         dlist.push('M', s.cx - s.r, comma, s.cy,
                    'L', s.cx + s.r, comma, s.cy);
+
+        // add another line but it is vertical so now it becomes a plus in the message (shows +ve ack)
         if ((message.type == MESSAGE_TYPE.PROMISE) ||
+            (message.type == MESSAGE_TYPE.CLIENT_REPLY) ||
             (message.type == MESSAGE_TYPE.ACCEPTED)) {
            dlist.push('M', s.cx, comma, s.cy - s.r,
                       'L', s.cx, comma, s.cy + s.r);
         }
         $('#message-' + i + ' path.message-success', messagesGroup)
           .attr('d', dlist.join(' '));
-      }*/
+      }
       var dir = $('#message-' + i + ' path.message-direction', messagesGroup);
       if (playback.isPaused()) {
         dir.attr('style', 'marker-end:url(#TriangleOutS-' + message.type + ')')
