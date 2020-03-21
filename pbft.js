@@ -19,8 +19,8 @@ var NUM_CLIENTS = 1;
 // failures that the algorithm can progress correctly with.
 var NUM_TOLERATED_BYZANTINE_FAULTS = 1;
 
-//2f+1
-var MINIMAL_APPROVE = 2 * Math.floor((NUM_SERVERS-1)/3) + 1;
+//f+1
+var MINIMAL_APPROVE = Math.floor((NUM_SERVERS-1)/3) + 1;
 
 // Public variable, indicating how many nodes to draw.
 pbft.NUM_NODES = NUM_SERVERS + NUM_CLIENTS;
@@ -48,11 +48,11 @@ const NODE_STATE = {
 }
 
 const MESSAGE_TYPE = {
-  CLIENT_REQUEST: 'client_request_msg',
+  CLIENT_REQUEST: 'client_request',
   PRE_PREPARE: 'pre_prepare_msg',
   PREPARE: 'prepare_msg',
   COMMIT: 'commit_msg',
-  CLIENT_REPLY: 'client_reply_msg',
+  CLIENT_REPLY: 'client_reply',
   VIEW_CHANGE: 'view_change_msg',
   NEW_VIEW: 'new_view_msg',
   CHECKPOINT: 'checkpoint_msg'
@@ -101,8 +101,8 @@ var sendRequest = function(model, request) {
 var rules = {};
 pbft.rules = rules;
 
-var makeViewChangeAlarm = function(now) {
-  return now + (Math.random() + 1) * VIEW_CHANGE_TIMEOUT;
+var makeViewChangeAlarm = function(now, server) {
+  return now + (Math.random() + 1) * (VIEW_CHANGE_TIMEOUT * server.viewChangeAttempt);
 };
 
 /**
@@ -221,9 +221,9 @@ pbft.server = function(id, peers) {
     // checkpointProof: {},
 
     //fields for client
-    LatestPrime: 0,
+    latestPrime: 0,
     clientMulticastTimer: util.Inf,
-    clientRequestTimestamp: -1,
+    clientRequestTimestamp: 0,
     clientReplyCount: 0,
   };
 };
@@ -312,8 +312,13 @@ var handlePrePrepareRequest = function(model, server, request) {
                 Expecting: ${hashCode(request.m)}; Got: ${request.d}.`);
     return;
   }
-  if (!request.authentic) {
+  if (!request.authentic && request.from !== server.id) {
     console.log(`Preprepare request ${request} from unathenticated source rejected.`);
+    return;
+  }
+  if (server.acceptedPrePrepares[request.v][request.n].length !== 0 &&
+      hashCode(request.m) !== server.acceptedPrePrepares[request.v][request.n][0]) {
+    console.log(`Preprepare request of same view, sequence numbeer for a different digest already accepted. Not accepting.`)
     return;
   }
 
@@ -332,7 +337,6 @@ rules.sendPrepares = function(model, server, peer) {
 
     if ((requests.length === 1) &&
         (server.sentPrepareRequests[server.view][n][peer].length === 0) &&
-        (peer != server.id) && /* Don't sent prepares to self. */
         (!(server.view % NUM_SERVERS == server.id)) /* Primary does not send prepares. */
        ) {
 
@@ -381,7 +385,7 @@ var handlePrepareRequest = function(model, server, request) {
                 Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
     return;
   }
-  if (!request.authentic) {
+  if (!request.authentic && request.from !== server.id) {
     console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
@@ -415,10 +419,8 @@ rules.startCommit = function(model, server) {
     server.preparedMessagesToCommit[server.view][n] = server.preparedMessagesToCommit[server.view][n] || [];
 
     /* The below condition checks the "prepared" predicate mentioned in the
-     * paper. Note that only 2f PREPAREs are required, because servers do not
-     * send PREPARE messages to themselves (and so have already implicitly
-     * counted one prepare message, or have sent a PRE-PREPARE with matching
-     * view and sequence number in the case of the primary). */
+     * paper. Note that only 2f PREPAREs are required from different replicas
+     * (including itself). */
     if ((getUniqueNumPrepareRequestsReceived(requests) >=
         (2 * NUM_TOLERATED_BYZANTINE_FAULTS)) &&
         (server.preparedMessagesToCommit[server.view][n].length == 0)) {
@@ -469,7 +471,7 @@ var handleCommitRequest = function(model, server, request) {
                 Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
     return;
   }
-  if (!request.authentic) {
+  if (!request.authentic && request.from !== server.id) {
     console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
@@ -539,7 +541,7 @@ rules.addCommitsToLog = function(model, server) {
           if (server.queuedClientRequests.length == 0) {
             server.viewChangeAlarm = util.Inf;
           } else {
-            server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+            server.viewChangeAlarm = makeViewChangeAlarm(model.time, server);
           }
         }
       }
@@ -552,7 +554,7 @@ rules.addCommitsToLog = function(model, server) {
             if (server.queuedClientRequests.length == 0) {
               server.viewChangeAlarm = util.Inf;
             } else {
-              server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+              server.viewChangeAlarm = makeViewChangeAlarm(model.time, server);
             }
             break;
           }
@@ -564,11 +566,22 @@ rules.addCommitsToLog = function(model, server) {
        * the peer won't have accepted the pre-prepare  in the same view. */
       if (m === undefined) {
         console.warn("server " + server.id + "missed pre-prepare for message with view " + rq.v + " and sequence number " + rq.n);
+        return;
       }
 
       var msg = "(" + rq.v + "," + rq.n + "," + m + ")";
       server.log.push(msg);
       server.pushedLogMessages[server.view][n].push(msg);
+
+      var reply = {
+        from: server.id,
+        to: util.pbftGetClient(model),
+        v: server.view,
+        timestamp: m.split(":")[1],
+        r: m.split(":")[0],
+        type: MESSAGE_TYPE.CLIENT_REPLY,
+      };
+      sendRequest(model, reply);
     }
   });
 };
@@ -578,18 +591,25 @@ rules.sendClientReply = function(model, server, peer) {
 }
 
 rules.startViewChangeTimeout = function(model, server) {
+  /* Only reset the timeout if it wasn't already running. This prevents
+   * repeatedly restarting over and over. */
+  if (server.viewChangeAlarm !== util.Inf) {
+    return;
+  }
+
   /* If we're currently trying to change the view, and we've received one
    * valid view change request from every peer, we start the timeout again,
-   * until we receive a valid new view request from the new primary. */
-  if ((server.state == NODE_STATE.CHANGING_VIEW) &&
-      (getUniqueNumViewChangeRequestsReceived(
-         server.viewChangeRequestsReceived[server.view +
-                                           server.viewChangeAttempt]
-       ) >= ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1)) &&
-      /* Only reset the timeout if it wasn't already running. This prevents
-       * repeatedly restarting over and over. */
-      (server.viewChangeAlarm === util.Inf)) {
-    server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+   * active until we receive a valid new view request from the new primary. */
+  var viewChangeStarted = server.state == NODE_STATE.CHANGING_VIEW &&
+                          (getUniqueNumViewChangeRequestsReceived(
+                            server.viewChangeRequestsReceived[server.view +
+                                                              server.viewChangeAttempt]
+                           ) >= ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1));
+  /* If a message from the client is waiting to be processed, we will need to
+   * change view if the message is not processed fast enough. */
+  var clientMessageInQueue = server.queuedClientRequests.length !== 0;
+  if (viewChangeStarted || clientMessageInQueue) {
+    server.viewChangeAlarm = makeViewChangeAlarm(model.time, server);
   }
 };
 
@@ -650,8 +670,10 @@ rules.sendViewChange = function(model, server, peer) {
 
 var handleViewChangeRequest = function(model, server, request) {
   server.viewChangeRequestsReceived[request.v] = server.viewChangeRequestsReceived[request.v] || makePeerArrays();
-  server.viewChangeRequestsReceived[request.v][request.from].push(request);
-  updateHighestViewChangeReceived(server, request.v);
+  if (request.authentic && request.from !== server.id) {
+    server.viewChangeRequestsReceived[request.v][request.from].push(request);
+    updateHighestViewChangeReceived(server, request.v);
+  }
 };
 
 /**
@@ -680,13 +702,12 @@ rules.sendNewView = function(model, server, peer) {
        ) >= (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1)) &&
       (server.id == (server.highestViewChangeReceived % NUM_SERVERS)) &&
       (server.newViewRequestsSent[server.highestViewChangeReceived][peer].length === 0)) {
-
     var message = {
       from: server.id,
       to: peer,
       type: MESSAGE_TYPE.NEW_VIEW,
       v: server.highestViewChangeReceived,
-      V: server.viewChangeRequests
+      V: server.viewChangeRequestsReceived[server.highestViewChangeReceived],
     };
     sendRequest(model, message);
 
@@ -700,16 +721,22 @@ rules.sendNewView = function(model, server, peer) {
 };
 
 var handleNewViewRequest = function(model, server, request) {
+  if (!request.authentic && request.from !== server.id) {
+    return;
+  }
+
   if (server.queuedClientRequests === 0) {
     server.viewChangeAlarm = util.Inf;
   } else {
     /* If we're waiting for a client request to be processed, set a new
      * timeout. */
-    server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+    server.viewChangeAlarm = makeViewChangeAlarm(model.time, server);
   }
-  server.view = request.v;
-  server.state = NODE_STATE.BACKUP;
-  server.viewChangeAttempt = 1;
+  if (request.v >= server.view && request.V.length >= (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1)) {
+    server.view = request.v;
+    server.state = NODE_STATE.BACKUP;
+    server.viewChangeAttempt = 1;
+  }
   /* TODO: the sequence number should be reset upon entering a new view.
    * This is causing problems now, for now just let it strictly increase. */
   //server.lastUsedSequenceNumber = -1;
@@ -746,13 +773,32 @@ var handleCheckpointRequest = function(model, server, request) {
 };
 
 var handleClientRequestRequest = function(model, server, request) {
-  // TODO
+  /* Servers don't respond to requests other than view-change, change-view
+   * or checkpoint when view changing. */
+  if (server.state.CHANGING_VIEW) {
+    return;
+  }
+
+  var clientRequestContents = request.value + ":" + request.timestamp;
+  if (!server.queuedClientRequests.includes(clientRequestContents)) {
+    if (server.id == server.view % NUM_SERVERS || request.multicast) {
+      server.queuedClientRequests.push(clientRequestContents);
+    } else if (request.from === util.pbftGetClient(model)) {
+      // Forward to primary, if not the primary and the message came
+      // from the client.
+      request.from = server.id;
+      request.to = server.view % NUM_SERVERS;
+      sendMessage(model, request);
+    }
+  }
 }
 
 var handleClientReplyRequest = function(model, server, request) {//daniel
   if(request.authentic && request.timestamp == server.clientRequestTimestamp){//authentic and timestamp matches
-    server.clientReplyCount ++;
+    server.clientReplyCount++;
   }
+  updateHighestViewChangeReceived(server, request.v);
+  server.latestPrime = server.highestViewChangeReceived % NUM_SERVERS;
 }
 
 var handleServerMessage = function(model, server, message) {
@@ -786,7 +832,7 @@ var handleClientMessage = function(model, server, message) {
 }
 
 var handleMessage = function(model, server, message) {
-  switch(serverIdToState(server.id)) {
+  switch(server.state) {
     case NODE_STATE.BACKUP:
     case NODE_STATE.PRIMARY:
     case NODE_STATE.CHANGING_VIEW: {
@@ -817,7 +863,8 @@ var executeServerRules = function(model, server) {
 }
 
 var executeClientRules = function(model, server) {
-  // TODO
+  pbft.clientRequestTimedOut(model,server);
+  pbft.clientRequestNumberCheck(model,server);
 }
 
 var executeRules = function(model, server) {
@@ -847,20 +894,14 @@ var sendServerMessages = function(model, server, peer) {
   rules.sendCheckpoint(model, server, peer);
 }
 
-var sendClientMessages = function(model, server, peer) {
-  rules.sendClientReply(model, server, peer);
-}
-
 var sendMessages = function(model, server, peer) {
   switch(model.servers[peer].state) {
     case NODE_STATE.PRIMARY:
     case NODE_STATE.BACKUP:
-    case NODE_STATE.CHANGING_VIEW: {
+    case NODE_STATE.CHANGING_VIEW:
+    // Still send messages to crashed nodes
+    case NODE_STATE.CRASHED: {
       sendServerMessages(model, server, peer);
-      break;
-    }
-    case NODE_STATE.CLIENT: {
-      sendClientMessages(model, server, peer);
       break;
     }
     default: {
@@ -900,21 +941,25 @@ pbft.update = function(model) {
 // Public function.
 pbft.stop = function(model, server) {
   server.state = NODE_STATE.CRASHED;
+  server.viewChangeAlarm = util.Inf;
 };
 
 // Public function.
 pbft.resume = function(model, server) {
-  // TODO
+  server.state = NODE_STATE.BACKUP;
 };
 
 // Public function.
 pbft.resumeAll = function(model) {
-  // TODO
+  model.servers.forEach(function(server) {
+    pbft.resume(model, server);
+  });
 };
 
 // Public function.
 pbft.restart = function(model, server) {
-  // TODO
+  server.state = NODE_STATE.BACKUP;
+  server.viewChangeAlarm = util.Inf;
 };
 
 // Public function.
@@ -930,21 +975,6 @@ pbft.timeout = function(model, server) {
   rules.startNewViewChange(model, server);
 };
 
-pbft.clientRequest = function(model) {
-  var client = util.pbftGetClient(model);
-  var timestamp = model.time;
-  //send msg(type,msg,time) + start timer
-  sendMessage(model, {
-    from: client,
-    to: model.servers[client].LatestPrime,
-    type: MESSAGE_TYPE.CLIENT_REQUEST,
-    timestamp: timestamp,
-    value: "123",
-    authentic: true,
-    });
-  model.servers[client].clientRequestTimestamp = timestamp;
-  model.servers[client].clientMulticastTimer = model.time + CLIENT_MULTICAST_TIMER;
-};
 /* Represents a server's key not being correct (e.g. a
  * has a private key that its peers do not have a corresponding
  * public key for). Any messages the server sends after this
@@ -965,17 +995,31 @@ pbft.becomeAuthentic = function(model, server) {
   pbft.reset(model, server);
 }
 
+pbft.clientRequest = function(model) {
+  var client = util.pbftGetClient(model);
+  //send msg(type,msg,time) + start timer
+  sendMessage(model, {
+    from: client,
+    to: model.servers[client].latestPrime,
+    type: MESSAGE_TYPE.CLIENT_REQUEST,
+    timestamp: model.servers[client].clientRequestTimestamp,
+    value: "abc",
+    multicast: false,
+  });
+  model.servers[client].clientMulticastTimer = model.time + CLIENT_MULTICAST_TIMER;
+};
+
 pbft.clientRequestTimedOut = function(model,server){
-  if(server.clientMulticastTimer <= model.time){//timed out 
+  if(server.clientMulticastTimer <= model.time){//timed out
     var client = util.pbftGetClient(model);
     util.pbftGetReplicas(model).forEach(function(id){
       sendMessage(model, {
         from: client,
         to: id,
         type: MESSAGE_TYPE.CLIENT_REQUEST,
-        timestamp: model.time,
-        value: "123",
-        valid: true,
+        timestamp: model.servers[client].clientRequestTimestamp,
+        value: "abc",
+        multicast: true,
       });
     })
     server.clientMulticastTimer = util.Inf;
@@ -984,9 +1028,10 @@ pbft.clientRequestTimedOut = function(model,server){
 
 pbft.clientRequestNumberCheck = function(model,server){
   if(server.state == NODE_STATE.CLIENT && server.clientReplyCount >= MINIMAL_APPROVE){//is client and number of approval exceeds requested
+    console.log("Client received valid message from " + server.clientReplyCount + " replicas");
     server.clientMulticastTimer = util.Inf;
-    server.clientRequestTimestamp = -1;
     server.clientReplyCount = 0;
+    server.clientRequestTimestamp += 1;
   }
 }
 
