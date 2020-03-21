@@ -19,9 +19,6 @@ var NUM_CLIENTS = 1;
 // failures that the algorithm can progress correctly with.
 var NUM_TOLERATED_BYZANTINE_FAULTS = 1;
 
-//2f+1
-var MINIMAL_APPROVE = 2 * Math.floor((NUM_SERVERS-1)/3) + 1;
-
 // Public variable, indicating how many nodes to draw.
 pbft.NUM_NODES = NUM_SERVERS + NUM_CLIENTS;
 
@@ -32,9 +29,6 @@ var MAX_RPC_LATENCY = 22000;
 // View change timeouts are randomly selected in the range
 // [VIEW_CHANGE_TIMEOUT, 2 * VIEW_CHANGE_TIMEOUT].
 var VIEW_CHANGE_TIMEOUT = 80000;
-
-//client multicast timer default
-var CLIENT_MULTICAST_TIMER = 300000;
 
 const NODE_STATE = {
   /* Prefix with pbft to avoid collision with other algorithms
@@ -219,12 +213,6 @@ pbft.server = function(id, peers) {
      * (see the TODO in the sendViewChange function. */
     // prePreparedMessageProofs: {},
     // checkpointProof: {},
-
-    //fields for client
-    LatestPrime: 0,
-    clientMulticastTimer: util.Inf,
-    clientRequestTimestamp: -1,
-    clientReplyCount: 0,
   };
 };
 
@@ -749,10 +737,8 @@ var handleClientRequestRequest = function(model, server, request) {
   // TODO
 }
 
-var handleClientReplyRequest = function(model, server, request) {//daniel
-  if(request.authentic && request.timestamp == server.clientRequestTimestamp){//authentic and timestamp matches
-    server.clientReplyCount ++;
-  }
+var handleClientReplyRequest = function(model, server, request) {
+  // TODO
 }
 
 var handleServerMessage = function(model, server, message) {
@@ -876,8 +862,6 @@ pbft.update = function(model) {
     server.peers.forEach(function(peer) {
       sendMessages(model, server, peer);
     });
-    pbft.clientRequestTimedOut(model,server);
-    pbft.clientRequestNumberCheck(model,server);
   });
   var deliver = [];
   var keep = [];
@@ -930,21 +914,6 @@ pbft.timeout = function(model, server) {
   rules.startNewViewChange(model, server);
 };
 
-pbft.clientRequest = function(model) {
-  var client = util.pbftGetClient(model);
-  var timestamp = model.time;
-  //send msg(type,msg,time) + start timer
-  sendMessage(model, {
-    from: client,
-    to: model.servers[client].LatestPrime,
-    type: MESSAGE_TYPE.CLIENT_REQUEST,
-    timestamp: timestamp,
-    value: "123",
-    authentic: true,
-    });
-  model.servers[client].clientRequestTimestamp = timestamp;
-  model.servers[client].clientMulticastTimer = model.time + CLIENT_MULTICAST_TIMER;
-};
 /* Represents a server's key not being correct (e.g. a
  * has a private key that its peers do not have a corresponding
  * public key for). Any messages the server sends after this
@@ -965,30 +934,31 @@ pbft.becomeAuthentic = function(model, server) {
   pbft.reset(model, server);
 }
 
-pbft.clientRequestTimedOut = function(model,server){
-  if(server.clientMulticastTimer <= model.time){//timed out 
-    var client = util.pbftGetClient(model);
-    util.pbftGetReplicas(model).forEach(function(id){
-      sendMessage(model, {
-        from: client,
-        to: id,
-        type: MESSAGE_TYPE.CLIENT_REQUEST,
-        timestamp: model.time,
-        value: "123",
-        valid: true,
-      });
-    })
-    server.clientMulticastTimer = util.Inf;
-  }
-};
+var clientMessageNumber = 0;
 
-pbft.clientRequestNumberCheck = function(model,server){
-  if(server.state == NODE_STATE.CLIENT && server.clientReplyCount >= MINIMAL_APPROVE){//is client and number of approval exceeds requested
-    server.clientMulticastTimer = util.Inf;
-    server.clientRequestTimestamp = -1;
-    server.clientReplyCount = 0;
-  }
-}
+pbft.clientRequest = function(model, server, t) {
+  server.viewChangeAlarm = makeViewChangeAlarm(model.time);
+
+  // TODO: client should only multicast after waiting for a timeout to expire
+  //  after receiving no response from primary.
+
+  /* Assume client decided to multicast the request right away, without waiting
+   * for a timeout after sending it to what it believed to be the primary. */
+  server.peers.forEach(function(peer) {
+    if (model.servers[peer].state === NODE_STATE.CLIENT) {
+      return;
+    }
+
+    /* Client does nothing. */
+    /* When client multicasts to a backup, the backup starts a timeout for
+     * receiving an RPC from the current primary. We just overwrite the previous
+     * timeout here with the more recent one (for when multiple client requests
+     * are made before the timeout expires). */
+    model.servers[peer].viewChangeAlarm = makeViewChangeAlarm(model.time);
+    model.servers[peer].queuedClientRequests.push(clientMessageNumber);
+  });
+  clientMessageNumber += 1;
+};
 
 // Public function.
 pbft.spreadTimers = function(model) {
@@ -1292,19 +1262,11 @@ pbft.render.ring = function(svg) {
 pbft.render.servers = function(serversSame, svg) {
   state.current.servers.forEach(function(server) {
     var serverNode = $('#server-' + server.id, svg);
-    if (server.state == NODE_STATE.CLIENT){
-      $('path', serverNode)
-        .attr('d', arcSpec(serverSpec(server.id, state.current),
-          util.clamp((server.clientMulticastTimer - state.current.time) /
-                      (CLIENT_MULTICAST_TIMER),
-                      0, 1)));
-    } else {
-      $('path', serverNode)
+    $('path', serverNode)
       .attr('d', arcSpec(serverSpec(server.id, state.current),
         util.clamp((server.viewChangeAlarm - state.current.time) /
                     (VIEW_CHANGE_TIMEOUT * 2),
                     0, 1)));
-    }
     if (!serversSame) {
       $('text.view', serverNode).text(server.view);
       serverNode.attr('class', 'server ' + server.state);
