@@ -217,6 +217,14 @@ util.activate = function () {
       $('.modal').modal('hide');
       playback.toggle();
     } else if (e.keyCode == 'C'.charCodeAt(0)) {
+      if (activeProtocol == 'pbft'){
+        state.fork();
+        playback.pause();
+        pbft.clientRequest(state.current);
+        state.save();
+        playback.resume();
+        $('.modal').modal('hide');
+      }
       //if paxos send clientRequestMessage
       if (activeProtocol == 'paxos') {
         state.fork();
