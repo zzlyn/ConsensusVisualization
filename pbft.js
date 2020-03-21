@@ -48,11 +48,11 @@ const NODE_STATE = {
 }
 
 const MESSAGE_TYPE = {
-  CLIENT_REQUEST: 'client_request_msg',
+  CLIENT_REQUEST: 'client_request',
   PRE_PREPARE: 'pre_prepare_msg',
   PREPARE: 'prepare_msg',
   COMMIT: 'commit_msg',
-  CLIENT_REPLY: 'client_reply_msg',
+  CLIENT_REPLY: 'client_reply',
   VIEW_CHANGE: 'view_change_msg',
   NEW_VIEW: 'new_view_msg',
   CHECKPOINT: 'checkpoint_msg'
@@ -221,9 +221,9 @@ pbft.server = function(id, peers) {
     // checkpointProof: {},
 
     //fields for client
-    LatestPrime: 0,
+    latestPrime: 0,
     clientMulticastTimer: util.Inf,
-    clientRequestTimestamp: -1,
+    clientRequestTimestamp: 0,
     clientReplyCount: 0,
   };
 };
@@ -569,6 +569,16 @@ rules.addCommitsToLog = function(model, server) {
       var msg = "(" + rq.v + "," + rq.n + "," + m + ")";
       server.log.push(msg);
       server.pushedLogMessages[server.view][n].push(msg);
+
+      var reply = {
+        from: server.id,
+        to: util.pbftGetClient(model),
+        v: server.view,
+        timestamp: m.split(":")[1],
+        r: m.split(":")[0],
+        type: MESSAGE_TYPE.CLIENT_REPLY,
+      };
+      sendRequest(model, reply);
     }
   });
 };
@@ -687,7 +697,6 @@ rules.sendNewView = function(model, server, peer) {
        ) >= (2 * NUM_TOLERATED_BYZANTINE_FAULTS + 1)) &&
       (server.id == (server.highestViewChangeReceived % NUM_SERVERS)) &&
       (server.newViewRequestsSent[server.highestViewChangeReceived][peer].length === 0)) {
-
     var message = {
       from: server.id,
       to: peer,
@@ -753,13 +762,26 @@ var handleCheckpointRequest = function(model, server, request) {
 };
 
 var handleClientRequestRequest = function(model, server, request) {
-  // TODO
+  /* Primary multicasts to all other servers atomically. Itself is
+   * included in its `peers`. */
+  if (server.id == server.view % NUM_SERVERS) {
+    server.peers.forEach(function(peer) {
+      if (model.servers[peer].state === NODE_STATE.CLIENT) {
+        return;
+      }
+      model.servers[peer].queuedClientRequests.push(request.value + ":" + request.timestamp);
+    });
+  } else {
+      server.queuedClientRequests.push(request.value + ":" + request.timestamp);
+  }
 }
 
 var handleClientReplyRequest = function(model, server, request) {//daniel
   if(request.authentic && request.timestamp == server.clientRequestTimestamp){//authentic and timestamp matches
-    server.clientReplyCount ++;
+    server.clientReplyCount++;
   }
+  updateHighestViewChangeReceived(server, request.v);
+  server.latestPrime = server.highestViewChangeReceived % NUM_SERVERS;
 }
 
 var handleServerMessage = function(model, server, message) {
@@ -824,7 +846,8 @@ var executeServerRules = function(model, server) {
 }
 
 var executeClientRules = function(model, server) {
-  // TODO
+  pbft.clientRequestTimedOut(model,server);
+  pbft.clientRequestNumberCheck(model,server);
 }
 
 var executeRules = function(model, server) {
@@ -978,17 +1001,29 @@ pbft.becomeAuthentic = function(model, server) {
   pbft.reset(model, server);
 }
 
+pbft.clientRequest = function(model) {
+  var client = util.pbftGetClient(model);
+  //send msg(type,msg,time) + start timer
+  sendMessage(model, {
+    from: client,
+    to: model.servers[client].latestPrime,
+    type: MESSAGE_TYPE.CLIENT_REQUEST,
+    timestamp: model.servers[client].clientRequestTimestamp,
+    value: "abc",
+  });
+  model.servers[client].clientMulticastTimer = model.time + CLIENT_MULTICAST_TIMER;
+};
+
 pbft.clientRequestTimedOut = function(model,server){
-  if(server.clientMulticastTimer <= model.time){//timed out 
+  if(server.clientMulticastTimer <= model.time){//timed out
     var client = util.pbftGetClient(model);
     util.pbftGetReplicas(model).forEach(function(id){
       sendMessage(model, {
         from: client,
         to: id,
         type: MESSAGE_TYPE.CLIENT_REQUEST,
-        timestamp: model.time,
-        value: "123",
-        valid: true,
+        timestamp: model.servers[client].clientRequestTimestamp,
+        value: "abc",
       });
     })
     server.clientMulticastTimer = util.Inf;
@@ -997,9 +1032,10 @@ pbft.clientRequestTimedOut = function(model,server){
 
 pbft.clientRequestNumberCheck = function(model,server){
   if(server.state == NODE_STATE.CLIENT && server.clientReplyCount >= MINIMAL_APPROVE){//is client and number of approval exceeds requested
+    console.log("Client received valid message from " + server.clientReplyCount + " replicas");
     server.clientMulticastTimer = util.Inf;
-    server.clientRequestTimestamp = -1;
     server.clientReplyCount = 0;
+    server.clientRequestTimestamp += 1;
   }
 }
 
