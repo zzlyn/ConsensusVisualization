@@ -102,7 +102,8 @@ var rules = {};
 pbft.rules = rules;
 
 var makeViewChangeAlarm = function(now, server) {
-  return now + (Math.random() + 1) * (VIEW_CHANGE_TIMEOUT * server.viewChangeAttempt);
+  server.viewChangeTimeout = VIEW_CHANGE_TIMEOUT * server.viewChangeAttempt;
+  return now + (Math.random() + 1) * (server.viewChangeTimeout);
 };
 
 /**
@@ -149,16 +150,27 @@ pbft.server = function(id, peers) {
      * malicious servers that block the view change). */
     viewChangeAttempt: 1,
 
+    /* By default at VIEW_CHANGE_TIMEOUT. Set when making a new view change timeout
+     * to increase the timeout after each failed attempt. */
+    viewChangeTimeout: VIEW_CHANGE_TIMEOUT,
+
     /* Flag to indicate whether this server will produce authentic messages, assuming
      * peers can check the authenticity of the server based on the message. */
     authentic: true,
 
-    /* Client request messages get pushed to queuedClientRequests. This is a
-     * FIFO queue of requests that the client has sent to this server, that this
-     * server either needs to start the pre-prepare phase for (if it is primary),
-     * or is waiting for the request to be committed (if it is a backup), and
-     * will time out and start a view change if the requesdt is not committed in
-     * time. */
+    /* Queue of messages that are waiting to be executed (i.e. that the server knows
+     * about). Different from queuedClientRequests in that queuedClientRequests is
+     * consumed by the primary when starting pre-prepare for the request, but the
+     * request maintains a record in clientRequestsToExecute, which is only consumed
+     * once the request is actually executed. This means that a primary that failed
+     * after starting a pre-prepare can still observe that a request still needs to
+     * be processed, and time out so that another primary can try. */
+    clientRequestsToExecute: [],
+
+    /* Local queue at the server of requests to process queuedClientRequests. If a
+     * request has been recorded in clientRequestsToExecute, and there has not been
+     * attempt to execute the request in the current view, the primary adds requests
+     * from clientRequestsToExecute to queuedClientRequests. */
     queuedClientRequests: [],
 
     /* After reading from queuedClientRequests, a primary queues copies of the client
@@ -241,6 +253,24 @@ var getLatestCheckpointSequenceNumber = function(server) {
 rules.startPrePrepare = function(model, server) {
   server.clientMessagesToSend[server.view] = server.clientMessagesToSend[server.view] || makePeerArrays();
 
+  /* If we are primary and we haven't tried in this view to execute a pending request,
+   * try it now. */
+  if ((server.id == (server.view % NUM_SERVERS)) &&
+      (server.clientRequestsToExecute.length !== 0)) {
+      server.clientRequestsToExecute.forEach(function(request) {
+        var foundRequestAttempt = false;
+        for (let [n, requests] of Object.entries(server.prePrepareRequestsSent[server.view])) {
+          /* If we sent a pre-prepare in this view to ourselves for this request. */
+          if (requests[server.id][0] && requests[server.id][0].m == request) {
+            foundRequestAttempt = true;
+          }
+        }
+        if (!foundRequestAttempt) {
+          server.queuedClientRequests.push(request);
+        }
+    });
+  }
+
   if ((server.id == (server.view % NUM_SERVERS)) &&
       (server.queuedClientRequests.length !== 0)) {
 
@@ -251,6 +281,7 @@ rules.startPrePrepare = function(model, server) {
 
     /* Extract the request from the queue the client sent the request to. */
     var request = server.queuedClientRequests.shift();
+
     /* Queue the messages to be sent to other servers (see where this is read in
      * sendPrePrepare). */
     server.clientMessagesToSend[server.view].forEach(function(peerMessageQueue) {
@@ -320,6 +351,13 @@ var handlePrePrepareRequest = function(model, server, request) {
       hashCode(request.m) !== server.acceptedPrePrepares[request.v][request.n][0]) {
     console.log(`Preprepare request of same view, sequence numbeer for a different digest already accepted. Not accepting.`)
     return;
+  }
+
+  /* Backups may only have found out about the request to execute through
+   * the pre-prepare from the primary, so they queue it here if they do
+   * not have it already. */
+  if (!server.clientRequestsToExecute.includes(request.m)) {
+    server.clientRequestsToExecute.push(request.m);
   }
 
   server.acceptedPrePrepares[request.v][request.n].push(request);
@@ -531,6 +569,13 @@ rules.addCommitsToLog = function(model, server) {
           break;
         }
       }
+      /* Right now, this can happen if say a pre-prepare message from the new
+       * primary made it to a peer, before the new-view message. In this case,
+       * the peer won't have accepted the pre-prepare  in the same view. */
+      if (m === undefined) {
+        console.warn("server " + server.id + "missed pre-prepare for message with view " + rq.v + " and sequence number " + rq.n);
+        return;
+      }
 
       /* If the request was satisfied, remove it from queuedClientRequests. If
        * there are no more requests, we can remove the timeout, or reset the
@@ -538,35 +583,17 @@ rules.addCommitsToLog = function(model, server) {
       for (var i = 0; i < server.queuedClientRequests.length; i++) {
         if (server.queuedClientRequests[i] == m) {
           server.queuedClientRequests.splice(i, 1);
-          if (server.queuedClientRequests.length == 0) {
+        }
+      }
+      for (var i = 0; i < server.clientRequestsToExecute.length; i++) {
+        if (server.clientRequestsToExecute[i] == m) {
+          server.clientRequestsToExecute.splice(i, 1);
+          if (server.clientRequestsToExecute.length == 0) {
             server.viewChangeAlarm = util.Inf;
           } else {
             server.viewChangeAlarm = makeViewChangeAlarm(model.time, server);
           }
         }
-      }
-      /* The primary checks for the original request in its
-       * acceptedPrePrepares (it already dequeued the client request
-       * from queuedClientRequests). */
-      if ((server.id % NUM_SERVERS) == server.view) {
-        for (let [n, requests] of Object.entries(server.acceptedPrePrepares[server.view])) {
-          if (n == rq.n && requests[0].v == rq.v) {
-            if (server.queuedClientRequests.length == 0) {
-              server.viewChangeAlarm = util.Inf;
-            } else {
-              server.viewChangeAlarm = makeViewChangeAlarm(model.time, server);
-            }
-            break;
-          }
-        }
-      }
-
-      /* Right now, this can happen if say a pre-prepare message from the new
-       * primary made it to a peer, before the new-view message. In this case,
-       * the peer won't have accepted the pre-prepare  in the same view. */
-      if (m === undefined) {
-        console.warn("server " + server.id + "missed pre-prepare for message with view " + rq.v + " and sequence number " + rq.n);
-        return;
       }
 
       var msg = rq.v + "," + rq.n + "," + m;
@@ -615,8 +642,8 @@ rules.startViewChangeTimeout = function(model, server) {
                            ) >= ((2 * NUM_TOLERATED_BYZANTINE_FAULTS) + 1));
   /* If a message from the client is waiting to be processed, we will need to
    * change view if the message is not processed fast enough. */
-  var clientMessageInQueue = server.queuedClientRequests.length !== 0;
-  if (viewChangeStarted || clientMessageInQueue) {
+  var clientRequestsWaitingToExecute = server.clientRequestsToExecute.length !== 0;
+  if (viewChangeStarted || clientRequestsWaitingToExecute) {
     server.viewChangeAlarm = makeViewChangeAlarm(model.time, server);
   }
 };
@@ -677,11 +704,13 @@ rules.sendViewChange = function(model, server, peer) {
 };
 
 var handleViewChangeRequest = function(model, server, request) {
-  server.viewChangeRequestsReceived[request.v] = server.viewChangeRequestsReceived[request.v] || makePeerArrays();
-  if (request.authentic && request.from !== server.id) {
-    server.viewChangeRequestsReceived[request.v][request.from].push(request);
-    updateHighestViewChangeReceived(server, request.v);
+  if (!request.authentic && request.from !== server.id) {
+    return;
   }
+
+  server.viewChangeRequestsReceived[request.v] = server.viewChangeRequestsReceived[request.v] || makePeerArrays();
+  server.viewChangeRequestsReceived[request.v][request.from].push(request);
+  updateHighestViewChangeReceived(server, request.v);
 };
 
 /**
@@ -733,7 +762,7 @@ var handleNewViewRequest = function(model, server, request) {
     return;
   }
 
-  if (server.queuedClientRequests === 0) {
+  if (server.clientRequestsWaitingToExecute === 0) {
     server.viewChangeAlarm = util.Inf;
   } else {
     /* If we're waiting for a client request to be processed, set a new
@@ -788,10 +817,11 @@ var handleClientRequestRequest = function(model, server, request) {
   }
 
   var clientRequestContents = request.value + ":" + request.timestamp;
-  if (!server.queuedClientRequests.includes(clientRequestContents)) {
-    if (server.id == server.view % NUM_SERVERS || request.multicast) {
-      server.queuedClientRequests.push(clientRequestContents);
+  if (!server.clientRequestsToExecute.includes(clientRequestContents)) {
+    if (server.id == server.view % NUM_SERVERS) {
+      server.clientRequestsToExecute.push(clientRequestContents);
     } else if (request.from === util.pbftGetClient(model)) {
+      server.clientRequestsToExecute.push(clientRequestContents);
       // Forward to primary, if not the primary and the message came
       // from the client.
       request.from = server.id;
@@ -1012,7 +1042,6 @@ pbft.clientRequest = function(model) {
     type: MESSAGE_TYPE.CLIENT_REQUEST,
     timestamp: model.servers[client].clientRequestTimestamp,
     value: "a",
-    multicast: false,
   });
   model.servers[client].clientMulticastTimer = model.time + CLIENT_MULTICAST_TIMER;
 };
@@ -1027,7 +1056,6 @@ pbft.clientRequestTimedOut = function(model,server){
         type: MESSAGE_TYPE.CLIENT_REQUEST,
         timestamp: model.servers[client].clientRequestTimestamp,
         value: "a",
-        multicast: true,
       });
     })
     server.clientMulticastTimer = util.Inf;
@@ -1303,7 +1331,7 @@ var getMessageFieldList = function(model, message, mIndex) {
     .append(li('to', 'S' + message.to))
     .append(li('sent', util.relTime(message.sendTime, model.time)))
     .append(li('deliver', util.relTime(message.recvTime, model.time)));
-  
+
   if (message.type === MESSAGE_TYPE.CLIENT_REQUEST) {
     fields.append(li('timestamp', message.timestamp));
     fields.append(li('value', message.value));
@@ -1405,7 +1433,7 @@ pbft.render.servers = function(serversSame, svg) {
       $('path', serverNode)
       .attr('d', arcSpec(serverSpec(server.id, state.current),
         util.clamp((server.viewChangeAlarm - state.current.time) /
-                    (VIEW_CHANGE_TIMEOUT * 2),
+                    (server.viewChangeTimeout * 2),
                     0, 1)));
     }
     if (!serversSame) {
