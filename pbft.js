@@ -1011,7 +1011,7 @@ pbft.clientRequest = function(model) {
     to: model.servers[client].latestPrime,
     type: MESSAGE_TYPE.CLIENT_REQUEST,
     timestamp: model.servers[client].clientRequestTimestamp,
-    value: "abc",
+    value: "a",
     multicast: false,
   });
   model.servers[client].clientMulticastTimer = model.time + CLIENT_MULTICAST_TIMER;
@@ -1026,7 +1026,7 @@ pbft.clientRequestTimedOut = function(model,server){
         to: id,
         type: MESSAGE_TYPE.CLIENT_REQUEST,
         timestamp: model.servers[client].clientRequestTimestamp,
-        value: "abc",
+        value: "a",
         multicast: true,
       });
     })
@@ -1499,7 +1499,7 @@ pbft.render.entry = function(spec, entry, committed) {
 };
 
 // Public function.
-pbft.render.logs = function(svg) {
+pbft.render.logs = function(svg, model) {
   var LABEL_WIDTH = 25;
   var INDEX_HEIGHT = 25;
   var logsGroup = $('.logs', svg);
@@ -1519,10 +1519,22 @@ pbft.render.logs = function(svg) {
   var indexes = util.SVG('g')
     .attr('id', 'log-indexes');
   logsGroup.append(indexes);
-  var logSize = NUM_SERVERS;
-  for (var index = 1; index <= logSize; ++index) {
+  var logSize = 4;
+  var maxLogIndexServer;
+  var maxLogIndex = -1;
+  model.servers.forEach(function(s) {
+    if (maxLogIndex < (s.log.length-1)) {
+      maxLogIndex = s.log.length-1;
+      maxLogIndexServer = s;
+    }
+  });
+  for (var index = 0; index < logSize; ++index) {
+    var termSequenceNumberTuple = "";
+    if (maxLogIndex >= index) {
+      termSequenceNumberTuple = maxLogIndexServer.log[index].v + "," + maxLogIndexServer.log[index].n;
+    }
     var indexEntrySpec = {
-      x: indexSpec.x + (index - 0.5) * indexSpec.width / (logSize + 1),
+      x: indexSpec.x + (index + 1 - 0.5) * indexSpec.width / (logSize + 1),
       y: indexSpec.y,
       width: indexSpec.width / (logSize + 1),
       height: indexSpec.height,
@@ -1530,7 +1542,7 @@ pbft.render.logs = function(svg) {
     indexes
         .append(util.SVG('text')
           .attr(indexEntrySpec)
-          .text(index));
+          .text(termSequenceNumberTuple));
   }
   state.current.servers.forEach(function(server) {
     if (server.state === NODE_STATE.CLIENT) {

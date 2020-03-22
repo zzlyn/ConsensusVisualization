@@ -168,7 +168,13 @@ util.activate = function () {
     render.clock();
     render.servers(serversSame, svg);
     render.messages(messagesSame, svg);
-    render.logs(svg);
+    if (!serversSame) {
+      if (activeProtocol == 'pbft') {
+        render.logs(svg, state.current);
+      } else {
+        render.logs(svg);
+      }
+    }
   };
 
   // Time advancement, and translating wall clock time to a "model" time based
