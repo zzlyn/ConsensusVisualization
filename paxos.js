@@ -1031,7 +1031,35 @@ var paxos = {};
               0, 1)));
       }
       if (!serversSame) {
-        $('text.term', serverNode).text(server.term);
+        // decide what proposers and acceptors show on their nodes
+        switch(server.state ) {
+          case SERVER_STATE.PROPOSER:
+            // show term for porposer
+            if (server.phase !== PROPOSER_PHASE.INACTIVE) {
+              $('text.term', serverNode).text(server.term);
+            }
+          break;
+          case SERVER_STATE.ACCEPTOR:
+            if (server.promisedTerm !== -1 ) {
+              // show promised term for acceptor
+              $('text.term', serverNode).text(server.promisedTerm);
+            }
+          break;
+          default:
+            //do nothing
+        } 
+        if (server.state == SERVER_STATE.PROPOSER 
+          && server.phase !== PROPOSER_PHASE.INACTIVE) {
+          // show term for porposer
+          $('text.term', serverNode).text(server.term);
+        }
+        if (server.state == SERVER_STATE.ACCEPTOR 
+          && server.promisedTerm !== -1 ) {
+          // show promised term for acceptor
+          $('text.term', serverNode).text(server.promisedTerm);
+        }
+
+        //$('text.term', serverNode).text(server.term);
         serverNode.attr('class', 'server ' + server.state);
         $('circle.background', serverNode)
           .attr('style', 'fill: ' +
@@ -1091,8 +1119,9 @@ var paxos = {};
   // Public API.
   paxos.appendServerInfo = function (state, svg) {
     state.current.servers.forEach(function (server) {
-      var s = serverSpec(server.id, state.current);
-      $('#servers', svg).append(
+      var s = serverSpec(server.id, state.current);      
+      
+        $('#servers', svg).append(
         util.SVG('g')
           .attr('id', 'server-' + server.id)
           .attr('class', 'server')
@@ -1104,13 +1133,13 @@ var paxos = {};
             .append(util.SVG('circle')
               .attr('class', 'background')
               .attr(s))
-            .attr('fill', serverIdToColor(server.id))
             .append(util.SVG('path')
               .attr('style', 'stroke-width: ' + ARC_WIDTH))
             .append(util.SVG('text')
               .attr('class', 'term')
-              .attr({ x: s.cx, y: s.cy }))
+              .attr({ x: s.cx, y: s.cy }))        
           ));
+        
     });
   }
 
