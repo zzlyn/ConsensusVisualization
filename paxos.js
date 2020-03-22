@@ -743,14 +743,14 @@ var paxos = {};
   };
 
   var logsSpec = {
-    x: 510,
+    x: 800,
     y: 25,
     width: 250,
     height: 200,
   };
 
   var ringSpec = {
-    cx: 300,
+    cx: 500,
     cy: 210,
     r: 150,
   };

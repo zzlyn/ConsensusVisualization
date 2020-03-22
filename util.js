@@ -36,6 +36,21 @@ util.paxosLayoutCoord = function(frac, state, cx, cy, r) {
   }
   else {
     return {
+      x: 100,
+      y: cy,
+    };
+  }
+};
+
+var pbftLayoutCoord = function(frac, state, cx, cy, r) {
+  if (state !== 'pbft_client') {
+    return {
+      x: (cx - r) + (r - r*Math.cos(2*Math.PI*frac)),
+      y: cy - r*Math.sin(2*Math.PI*frac),
+    };
+  }
+  else {
+    return {
       x: 50,
       y: cy,
     };
