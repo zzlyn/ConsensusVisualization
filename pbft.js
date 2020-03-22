@@ -232,6 +232,12 @@ pbft.server = function(id, peers) {
     // prePreparedMessageProofs: {},
     // checkpointProof: {},
 
+    /* Implies if the server has been compromised and is a Byzantine server.
+     * Under such scenario the server will replace all message contents with
+     * its own `byzantineSecret` string */
+    isInByzantineMode: false,
+    byzantineSecret: "nice",
+
     //fields for client
     latestPrime: 0,
     clientMulticastTimer: util.Inf,
@@ -306,6 +312,16 @@ var hashCode = function(m) {
   return hash.toString(); // We work with strings throughout to make things easier.
 }
 
+/* Returns the original message or a byzantine version if server
+ * has `isInByzantineMode` set to true */
+var checkAndGetMessage = function(server, message) {
+  var sequence = message.split(':')[1];
+  if (server.isInByzantineMode) {
+    message = server.byzantineSecret + ':' + sequence;
+  }
+  return message;
+}
+
 rules.sendPrePrepare = function(model, server, peer) {
   server.clientMessagesToSend[server.view] = server.clientMessagesToSend[server.view] || makePeerArrays();
   server.prePrepareRequestsSent[server.view] = server.prePrepareRequestsSent[server.view] || {};
@@ -315,7 +331,7 @@ rules.sendPrePrepare = function(model, server, peer) {
   if ((server.id == (server.view % NUM_SERVERS)) &&
       (server.clientMessagesToSend[server.view][peer].length !== 0) &&
       (server.prePrepareRequestsSent[server.view][server.lastUsedSequenceNumber][peer].length === 0)) {
-    var message = server.clientMessagesToSend[server.view][peer][0];
+    var message = checkAndGetMessage(server, server.clientMessagesToSend[server.view][peer][0]);
     var request = {
       from: server.id,
       to: peer,
@@ -405,7 +421,7 @@ var extractLatestMessage = function(server, v, n) {
       !(0 in server.acceptedPrePrepares[v][n])) {
     return null;
   }
-  return server.acceptedPrePrepares[v][n][0].m;
+  return checkAndGetMessage(server, server.acceptedPrePrepares[v][n][0].m);
 }
 
 var handlePrepareRequest = function(model, server, request) {
@@ -1033,6 +1049,11 @@ pbft.becomeAuthentic = function(model, server) {
   pbft.reset(model, server);
 }
 
+/* "Compromises" a server and make it enter byzantine mode */
+pbft.byzantineMode = function(model, server) {
+  server.isInByzantineMode = true;
+}
+
 pbft.clientRequest = function(model) {
   var client = util.pbftGetClient(model);
   //send msg(type,msg,time) + start timer
@@ -1216,6 +1237,7 @@ var serverActions = [
   ['request', pbft.clientRequest],
   ['invalidate authenticity', pbft.invalidateAuthenticity],
   ['become authentic', pbft.becomeAuthentic],
+  ['byzantine mode', pbft.byzantineMode],
 ];
 
 var messageActions = [
@@ -1260,6 +1282,7 @@ var serverModal = function(model, server) {
       .append(li('currentView', server.view))
       .append(li('lastUsedSequenceNumber', server.lastUsedSequenceNumber))
       .append(li('viewChangeAlarm', util.relTime(server.viewChangeAlarm, model.time)))
+      .append(li('byzantineMode', server.isInByzantineMode))
       .append($('<dt>peers</dt>'))
       .append($('<dd></dd>').append(peerTable))
     );
