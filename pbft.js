@@ -1115,7 +1115,7 @@ var arcSpec = function(spec, fraction) {
 var logsSpec = {
   x: 420,
   y: 50,
-  width: 60 * NUM_SERVERS,
+  width: 62 * 8,
   height: 54 * NUM_SERVERS,
 };
 
@@ -1519,7 +1519,7 @@ pbft.render.logs = function(svg, model) {
   var indexes = util.SVG('g')
     .attr('id', 'log-indexes');
   logsGroup.append(indexes);
-  var logSize = 4;
+  var logSize = 8;
   var maxLogIndexServer;
   var maxLogIndex = -1;
   model.servers.forEach(function(s) {
@@ -1534,7 +1534,7 @@ pbft.render.logs = function(svg, model) {
       termSequenceNumberTuple = maxLogIndexServer.log[index].v + "," + maxLogIndexServer.log[index].n;
     }
     var indexEntrySpec = {
-      x: indexSpec.x + (index + 1 - 0.5) * indexSpec.width / (logSize + 1),
+      x: indexSpec.x + (index) * indexSpec.width / (logSize + 1),
       y: indexSpec.y,
       width: indexSpec.width / (logSize + 1),
       height: indexSpec.height,
@@ -1573,7 +1573,7 @@ pbft.render.logs = function(svg, model) {
         util.SVG('text')
           .text('S' + server.id)
           .attr('class', 'serverid ' + server.state)
-          .attr({x: logSpec.x + LABEL_WIDTH*4/5,
+          .attr({x: logSpec.x + LABEL_WIDTH*6/5,
                  y: logSpec.y + logSpec.height / 2}));
     for (var index = 1; index <= logSize; ++index) {
       log.append(util.SVG('rect')
