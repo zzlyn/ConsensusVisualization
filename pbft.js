@@ -1335,7 +1335,6 @@ var getMessageFieldList = function(model, message, mIndex) {
   if (message.type === MESSAGE_TYPE.CLIENT_REQUEST) {
     fields.append(li('timestamp', message.timestamp));
     fields.append(li('value', message.value));
-    fields.append(li('multicast', message.multicast));
   }
 
   if (message.type === MESSAGE_TYPE.PRE_PREPARE) {
