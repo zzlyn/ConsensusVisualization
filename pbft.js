@@ -1013,7 +1013,7 @@ pbft.becomeAuthentic = function(model, server) {
 
 /* Changes if server is in byzantine mode. */
 pbft.byzantineMode = function(model, server) {
-  server.isInByzantineMode != server.isInByzantineMode;
+  server.isInByzantineMode =! server.isInByzantineMode;
 }
 
 pbft.clientRequest = function(model) {
