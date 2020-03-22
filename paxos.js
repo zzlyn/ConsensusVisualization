@@ -170,12 +170,14 @@ var paxos = {};
       serverAttrs.hasAccepted = false;
       serverAttrs.acceptedTerm = -1;
       serverAttrs.acceptedValue = null;
+      serverAttrs.accValueLog = [];
     }
 
     // Learner Specific Attributes.
     if (serverAttrs.state === SERVER_STATE.LEARNER) {
       serverAttrs.voteLog = {};
       serverAttrs.learnedValue = null;
+      serverAttrs.lrnValueLog = [];
     }
 
     return serverAttrs;
@@ -519,6 +521,7 @@ var paxos = {};
     // This line can be reached even if acceptor has accepted something in the past already.
     server.acceptedTerm = acceptMsg.term;
     server.acceptedValue = acceptMsg.value;
+    server.accValueLog.push(acceptMsg.value);
 
     // send reply (accept reply = broadcast to all proposers and learners)
     // look into the server's peers and ignore if they are acceptors
@@ -573,6 +576,7 @@ var paxos = {};
       if (server.voteLog[key] > paxos.NUM_ACCEPTORS / 2) {
         //majority of accepted message received.
         server.learnedValue = message.value;
+        server.lrnValueLog.push(message.value);
         server.term = message.term;
         server.voteLog = {};
         sendMessage(model, {
@@ -739,14 +743,14 @@ var paxos = {};
   };
 
   var logsSpec = {
-    x: 430,
-    y: 50,
-    width: 320,
-    height: 270,
+    x: 510,
+    y: 25,
+    width: 250,
+    height: 200,
   };
 
   var ringSpec = {
-    cx: 500,
+    cx: 300,
     cy: 210,
     r: 150,
   };
@@ -1144,32 +1148,34 @@ var paxos = {};
   }
 
   // Public function.
-  paxos.render.entry = function (spec, entry, committed) {
+  paxos.render.entry = function (spec, entry) {//, committed) {
     return util.SVG('g')
-      .attr('class', 'entry ' + (committed ? 'committed' : 'uncommitted'))
+      .attr('class', 'entry')// + (committed ? 'committed' : 'uncommitted'))
       .append(util.SVG('rect')
-        .attr(spec)
-        .attr('stroke-dasharray', committed ? '1 0' : '5 5')
-        .attr('style', 'fill: ' + termColors[entry.term % termColors.length]))
+        .attr(spec))
+        //.attr('stroke-dasharray', committed ? '1 0' : '5 5')
+        //.attr('style', 'fill: ' + termColors[entry.term % termColors.length]))
       .append(util.SVG('text')
         .attr({
           x: spec.x + spec.width / 2,
-          y: spec.y + spec.height / 2
+          y: spec.y + spec.height / 2,
+          'font-size': '20'
         })
-        .text(entry.term));
+        .text(entry));
   };
 
   // Public function.
   paxos.render.logs = function (svg) {
     var LABEL_WIDTH = 25;
     var INDEX_HEIGHT = 25;
+    var num_runs_to_log = 5;
     var logsGroup = $('.logs', svg);
     logsGroup.empty();
     logsGroup.append(
       util.SVG('rect')
         .attr('id', 'logsbg')
         .attr(logsSpec));
-    var height = (logsSpec.height - INDEX_HEIGHT) / paxos.NUM_SERVERS;
+    var height = (logsSpec.height - INDEX_HEIGHT) / (paxos.NUM_ACCEPTORS+paxos.NUM_LEARNERS);
     var indexSpec = {
       x: logsSpec.x + LABEL_WIDTH + logsSpec.width * 0.05,
       y: logsSpec.y + 2 * height / 6,
@@ -1179,11 +1185,11 @@ var paxos = {};
     var indexes = util.SVG('g')
       .attr('id', 'log-indexes');
     logsGroup.append(indexes);
-    for (var index = 1; index <= 10; ++index) {
+    for (var index = 1; index <= num_runs_to_log; ++index) {
       var indexEntrySpec = {
-        x: indexSpec.x + (index - 0.5) * indexSpec.width / 11,
+        x: indexSpec.x + (index - 0.5) * indexSpec.width / (num_runs_to_log+1),
         y: indexSpec.y,
-        width: indexSpec.width / 11,
+        width: indexSpec.width / (num_runs_to_log+1),
         height: indexSpec.height,
       };
       indexes
@@ -1191,44 +1197,67 @@ var paxos = {};
           .attr(indexEntrySpec)
           .text(index));
     }
+
+    // not very significant. Only places the acceptors and learners in correct order
+    var incCtr = 1;
     state.current.servers.forEach(function (server) {
+
+      if (server.state !== SERVER_STATE.ACCEPTOR && server.state !== SERVER_STATE.LEARNER) {
+        return;
+      }
+
       var logSpec = {
-        x: logsSpec.x + LABEL_WIDTH + logsSpec.width * 0.05,
-        y: logsSpec.y + INDEX_HEIGHT + height * server.id - 5 * height / 6,
-        width: logsSpec.width * 0.9,
-        height: 2 * height / 3,
+        x: logsSpec.x + LABEL_WIDTH + logsSpec.width * 0.08,
+        y: logsSpec.y + INDEX_HEIGHT + height * incCtr - 5 * height / 6,
+        width: logsSpec.width * 0.9, //to change the size of boxes
+        height: 2 * height / 3, //to change the size of boxes
       };
+      incCtr++;
+
       var logEntrySpec = function (index) {
         return {
-          x: logSpec.x + (index - 1) * logSpec.width / 11,
+          x: logSpec.x + (index - 1) * logSpec.width / (num_runs_to_log+1),
           y: logSpec.y,
-          width: logSpec.width / 11,
+          width: logSpec.width / (num_runs_to_log+1),
           height: logSpec.height,
         };
       };
       var log = util.SVG('g')
-        .attr('id', 'log-S' + server.id);
+        .attr('id', serverIdToText(server.id));
       logsGroup.append(log);
       log.append(
         util.SVG('text')
-          .text('S' + server.id)
-          .attr('class', 'serverid ' + server.state)
+          .text(serverIdToText(server.id))
+          .attr('class', serverIdToText(server.id))
           .attr({
             x: logSpec.x - LABEL_WIDTH * 4 / 5,
             y: logSpec.y + logSpec.height / 2
           }));
-      for (var index = 1; index <= 10; ++index) {
+      for (var index = 1; index <= num_runs_to_log; ++index) {
         log.append(util.SVG('rect')
           .attr(logEntrySpec(index))
           .attr('class', 'log'));
       }
-      server.log.forEach(function (entry, i) {
+
+      if (server.state == SERVER_STATE.ACCEPTOR) {
+        server.accValueLog.forEach(function (entry, i) {
         var index = i + 1;
         log.append(paxos.render.entry(
           logEntrySpec(index),
-          entry,
-          index <= server.commitIndex));
-      });
+          entry));
+      	});
+      }
+      else if (server.state == SERVER_STATE.LEARNER) {
+      	server.lrnValueLog.forEach(function (entry, i) {
+        var index = i + 1;
+        log.append(paxos.render.entry(
+          logEntrySpec(index),
+          entry));
+      	});
+      }
+      else {
+      	console.log("Some other server (not acceptor/learner)!!!");
+      }
     });
   };
 
