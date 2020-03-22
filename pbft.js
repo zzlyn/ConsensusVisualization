@@ -1257,55 +1257,105 @@ var serverModal = function(model, server) {
   m.modal();
 };
 
-var messageModal = function(model, message, mIndex) {
-  var m = $('#modal-details');
-  $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
-  $('.modal-title', m).text(message.type + ' ' + message.direction);
+var formatMessageType = function(type) {
+  switch(type) {
+    case MESSAGE_TYPE.CLIENT_REQUEST:
+      return "Client Request";
+    case MESSAGE_TYPE.PRE_PREPARE:
+      return "Preprepare Request";
+    case MESSAGE_TYPE.PREPARE:
+      return "Prepare Request";
+    case MESSAGE_TYPE.VIEW_CHANGE:
+      return "View Change";
+    case MESSAGE_TYPE.COMMIT:
+      return "Commit Message";
+    case MESSAGE_TYPE.CLIENT_REPLY:
+      return "Client Reply";
+    default:
+      return "Unknown Message";
+  }
+}
+
+var shouldHaveDigest = function(type) {
+  if (type === MESSAGE_TYPE.PRE_PREPARE ||
+      type === MESSAGE_TYPE.PREPARE ||
+      type === MESSAGE_TYPE.COMMIT) {
+        return true;
+  }
+  return false;
+}
+
+/* Fill in fields associated with each message type. */
+var getMessageFieldList = function(model, message, mIndex) {
   var li = function(label, value) {
     return '<dt>' + label + '</dt><dd>' + value + '</dd>';
   };
   var fields = $('<dl class="dl-horizontal"></dl>')
-      .append(li('from', 'S' + message.from))
-      .append(li('to', 'S' + message.to))
-      .append(li('sent', util.relTime(message.sendTime, model.time)))
-      .append(li('deliver', util.relTime(message.recvTime, model.time)))
-      .append(`<dt>digest</dt><input id="message-digest-${mIndex}" type="text" class="client-input"><br>`)  // Modifiable message digest.
-      .append(li('v', message.v))
-      .append(li('n', message.n));
-  if (message.type == 'RequestVote') {
-    if (message.direction == 'request') {
-      // fields.append(li('lastLogIndex', message.lastLogIndex));
-      // fields.append(li('lastLogView', message.lastLogView));
-    } else {
-      // fields.append(li('granted', message.granted));
-    }
-  } else if (message.type == 'AppendEntries') {
-    if (message.direction == 'request') {
-      var entries = '[' + message.entries.map(function(e) {
-            return e.view;
-      }).join(' ') + ']';
-      // fields.append(li('prevIndex', message.prevIndex));
-      // fields.append(li('prevView', message.prevView));
-      fields.append(li('entries', entries));
-      // fields.append(li('n', message.n));
-    } else {
-      // fields.append(li('success', message.success));
-      // fields.append(li('matchIndex', message.matchIndex));
-    }
+    .append(li('from', 'S' + message.from))
+    .append(li('to', 'S' + message.to))
+    .append(li('sent', util.relTime(message.sendTime, model.time)))
+    .append(li('deliver', util.relTime(message.recvTime, model.time)));
+  
+  if (message.type === MESSAGE_TYPE.CLIENT_REQUEST) {
+    fields.append(li('timestamp', message.timestamp));
+    fields.append(li('value', message.value));
+    fields.append(li('multicast', message.multicast));
   }
+
+  if (message.type === MESSAGE_TYPE.PRE_PREPARE) {
+    fields.append(li('v', message.v));
+    fields.append(li('n', message.n));
+    fields.append(`<dt>digest</dt><input id="message-digest-${mIndex}" type="text" class="client-input"><br>`);
+    fields.append(li('m', message.m));
+  }
+
+  if (message.type === MESSAGE_TYPE.PREPARE ||
+      message.type === MESSAGE_TYPE.COMMIT) {
+    fields.append(li('v', message.v));
+    fields.append(li('n', message.n));
+    fields.append(`<dt>digest</dt><input id="message-digest-${mIndex}" type="text" class="client-input"><br>`);
+  }
+
+  if (message.type === MESSAGE_TYPE.CLIENT_REPLY) {
+    fields.append(li('v', message.v));
+    fields.append(li('timestamp', message.timestamp));
+    fields.append(li('r', message.r));
+  }
+
+  if (message.type === MESSAGE_TYPE.VIEW_CHANGE) {
+    fields.append(li('v', message.v));
+    fields.append(li('n', message.n));
+    fields.append(li('C', message.C));
+    fields.append(li('P', message.P));
+  }
+
+  if (message.type === MESSAGE_TYPE.NEW_VIEW) {
+    fields.append(li('v', message.v));
+    fields.append(li('V', message.V));
+  }
+
+  return fields;
+}
+
+var messageModal = function(model, message, mIndex) {
+  var m = $('#modal-details');
+  $('.modal-dialog', m).removeClass('modal-lg').addClass('modal-sm');
+  $('.modal-title', m).text(formatMessageType(message.type));
   $('.modal-body', m)
     .empty()
-    .append(fields);
-  // Fill in the value of modifiable message digest. This
-  // can only be done here after the list has been rendered.
-  var digestEntry = document.getElementById(`message-digest-${mIndex}`);
-  digestEntry.value = message.d;
-  // Bind message so that it is painted when user changes digest value.
-  digestEntry.bindMessage = message;
-  digestEntry.addEventListener("change", function(event) {
-    event.currentTarget.bindMessage.d = event.currentTarget.value;
-    event.currentTarget.bindMessage.digestModified = true;
-  })
+    .append(getMessageFieldList(model, message, mIndex));
+  // Fill in the value of modifiable message digest if message contains a digest.
+  // This can only be done after digest field is rendered on `modal-body`.
+  if (shouldHaveDigest(message.type)) {
+    var digestEntry = document.getElementById(`message-digest-${mIndex}`);
+    digestEntry.value = message.d;
+    // Bind message so that it is painted when user changes digest value.
+    digestEntry.bindMessage = message;
+    digestEntry.addEventListener("change", function(event) {
+      event.currentTarget.bindMessage.d = event.currentTarget.value;
+      event.currentTarget.bindMessage.digestModified = true;
+    });
+  }
   var footer = $('.modal-footer', m);
   footer.empty();
   messageActions.forEach(function(action) {
