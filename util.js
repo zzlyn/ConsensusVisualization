@@ -36,7 +36,7 @@ util.paxosLayoutCoord = function(frac, state, cx, cy, r) {
   }
   else {
     return {
-      x: 150,
+      x: 50,
       y: cy,
     };
   }
