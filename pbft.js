@@ -569,8 +569,16 @@ rules.addCommitsToLog = function(model, server) {
         return;
       }
 
-      var msg = "(" + rq.v + "," + rq.n + "," + m + ")";
-      server.log.push(msg);
+      var msg = rq.v + "," + rq.n + "," + m;
+      server.log.push({v: rq.v, n: rq.n, m: msg});
+      server.log.sort((a, b) => {
+        // Order log messages by (v, n) tuple
+        if (a.v == b.v) {
+          return a.n - b.n;
+        } else {
+          return a.v - b.v;
+        }
+      });
       server.pushedLogMessages[server.view][n].push(msg);
 
       var reply = {
@@ -1482,12 +1490,12 @@ pbft.render.entry = function(spec, entry, committed) {
     .append(util.SVG('rect')
       .attr(spec)
       .attr('stroke-dasharray', committed ? '1 0' : '5 5')
-      .attr('style', 'fill: ' + viewColors[entry.view % viewColors.length]))
+      .attr('style', 'fill: ' + viewColors[entry.v % viewColors.length]))
     .append(util.SVG('text')
       .attr({x: spec.x + spec.width / 2,
              y: spec.y + spec.height / 2})
       .css("fontSize","14px")
-      .text(entry));
+      .text(entry.m));
 };
 
 // Public function.
