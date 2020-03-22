@@ -50,7 +50,7 @@ const NODE_STATE = {
 const MESSAGE_TYPE = {
   CLIENT_REQUEST: 'client_request',
   PRE_PREPARE: 'pre_prepare_msg',
-  PREPARE: 'prepare_msg',
+  PREPARE: 'pbft_prepare_msg',
   COMMIT: 'commit_msg',
   CLIENT_REPLY: 'client_reply',
   VIEW_CHANGE: 'view_change_msg',
@@ -1553,7 +1553,7 @@ pbft.render.messages = function(messagesSame, svg) {
       // its digest has been changed by user.
       if (message.digestModified) {
         var circle = a.context.children[0];
-        circle.style.fill = 'black';
+        circle.style.fill = 'white';
       }
       messagesGroup.append(a);
     });
