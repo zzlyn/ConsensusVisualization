@@ -1141,36 +1141,22 @@ var arcSpec = function(spec, fraction) {
 };
 
 var logsSpec = {
-  x: 420,
-  y: 50,
+  x: 750,
+  y: 25,
   width: 62 * 8,
   height: 54 * NUM_SERVERS,
 };
 
 var ringSpec = {
-  cx: 210,
+  cx: 450,
   cy: 210,
   r: 150,
 };
 
-var pbftLayoutCoord = function(frac, state, cx, cy, r) {
-  if (state !== NODE_STATE.CLIENT) {
-    return {
-      x: (cx - r) + (r - r*Math.cos(2*Math.PI*frac)),
-      y: cy - r*Math.sin(2*Math.PI*frac),
-    };
-  }
-  else {
-    return {
-      x: 50,
-      y: 75,
-    };
-  }
-};
-
 var serverSpec = function(id, model) {
-  var coord = pbftLayoutCoord((id + 1) / (pbft.NUM_NODES - NUM_CLIENTS), model.servers[id].state,
+  var coord = pbftLayoutCoord((id) / (pbft.NUM_NODES - NUM_CLIENTS), model.servers[id].state,
                               ringSpec.cx, ringSpec.cy, ringSpec.r);
+  console.log(coord.x, coord.y);
   return {
     cx: coord.x,
     cy: coord.y,
