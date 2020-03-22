@@ -1154,7 +1154,7 @@ var ringSpec = {
 };
 
 var serverSpec = function(id, model) {
-  var coord = pbftLayoutCoord((id) / (pbft.NUM_NODES - NUM_CLIENTS), model.servers[id].state,
+  var coord = pbftLayoutCoord((id+1) / (pbft.NUM_NODES - NUM_CLIENTS), model.servers[id].state,
                               ringSpec.cx, ringSpec.cy, ringSpec.r);
   return {
     cx: coord.x,
