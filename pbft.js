@@ -1287,7 +1287,9 @@ var formatMessageType = function(type) {
     case MESSAGE_TYPE.PREPARE:
       return "Prepare Request";
     case MESSAGE_TYPE.VIEW_CHANGE:
-      return "View Change";
+      return "View Change Message";
+    case MESSAGE_TYPE.NEW_VIEW:
+      return "New View Message";
     case MESSAGE_TYPE.COMMIT:
       return "Commit Message";
     case MESSAGE_TYPE.CLIENT_REPLY:
