@@ -111,11 +111,11 @@ var paxos = {};
     }
 
     if (state === SERVER_STATE.ACCEPTOR) {
-      return '#4D243D';
+      return '#6c515a';
     }
 
     if (state === SERVER_STATE.LEARNER) {
-      return '#F4EEE1';
+      return '#a393bf';
     }
 
     return 'black'; // UNKNOWN.
