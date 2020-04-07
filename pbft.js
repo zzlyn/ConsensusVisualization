@@ -236,7 +236,7 @@ pbft.server = function(id, peers) {
      * Under such scenario the server will replace all message contents with
      * its own `byzantineSecret` string */
     isInByzantineMode: false,
-    byzantineSecret: "nice",
+    byzantineSecret: "b",
 
     //fields for client
     latestPrime: 0,
