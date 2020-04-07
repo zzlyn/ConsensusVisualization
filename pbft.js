@@ -338,6 +338,7 @@ rules.sendPrePrepare = function(model, server, peer) {
       type: MESSAGE_TYPE.PRE_PREPARE,
       v: server.view,
       n: server.lastUsedSequenceNumber,
+      hasValidClientSignature: !server.isInByzantineMode,
       /* Digest of the message which is part of the validation on receiver. */
       d: hashCode(message),
       /* The message content is sent at the same time as the pre-prepare. */
@@ -359,7 +360,7 @@ var handlePrePrepareRequest = function(model, server, request) {
                 Expecting: ${hashCode(request.m)}; Got: ${request.d}.`);
     return;
   }
-  if (!request.authentic && request.from !== server.id) {
+  if ((!request.authentic || !request.hasValidClientSignature) && !server.isInByzantineMode && request.from !== server.id) {
     console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
@@ -439,8 +440,8 @@ var handlePrepareRequest = function(model, server, request) {
                 Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
     return;
   }
-  if (!request.authentic && request.from !== server.id) {
-    console.log(`Preprepare request ${request} from unathenticated source rejected.`);
+  if (!request.authentic && !server.isInByzantineMode && request.from !== server.id) {
+    console.log(`Prepare request ${request} from unathenticated source rejected.`);
     return;
   }
 
@@ -525,7 +526,7 @@ var handleCommitRequest = function(model, server, request) {
                 Expecting: ${hashCode(msg)}; Got: ${request.d}.`);
     return;
   }
-  if (!request.authentic && request.from !== server.id) {
+  if (!request.authentic && !server.isInByzantineMode && request.from !== server.id) {
     console.log(`Preprepare request ${request} from unathenticated source rejected.`);
     return;
   }
@@ -774,7 +775,7 @@ rules.sendNewView = function(model, server, peer) {
 };
 
 var handleNewViewRequest = function(model, server, request) {
-  if (!request.authentic && request.from !== server.id) {
+  if (!request.authentic && !server.isInByzantineMode && request.from !== server.id) {
     return;
   }
 
@@ -830,6 +831,10 @@ var handleClientRequestRequest = function(model, server, request) {
    * or checkpoint when view changing. */
   if (server.state.CHANGING_VIEW) {
     return;
+  }
+
+  if (server.isInByzantineMode) {
+    request.value = server.byzantineSecret;
   }
 
   var clientRequestContents = request.value + ":" + request.timestamp;
@@ -1052,7 +1057,6 @@ pbft.becomeAuthentic = function(model, server) {
 /* Changes if server is in byzantine mode. */
 pbft.byzantineMode = function(model, server) {
   server.isInByzantineMode =! server.isInByzantineMode;
-  server.authentic = !server.isInByzantineMode
 }
 
 pbft.clientRequest = function(model) {
@@ -1452,7 +1456,7 @@ pbft.render.servers = function(serversSame, svg) {
       var serverFill;
       if (server.state == NODE_STATE.CRASHED) {
         serverFill = 'grey';
-      } else if (!server.authentic) {
+      } else if (!server.authentic || server.isInByzantineMode) {
         serverFill = '#c76561';
       } else {
         serverFill = viewColors[server.view % viewColors.length];
