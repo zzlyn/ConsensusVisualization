@@ -338,6 +338,17 @@ rules.sendPrePrepare = function(model, server, peer) {
       type: MESSAGE_TYPE.PRE_PREPARE,
       v: server.view,
       n: server.lastUsedSequenceNumber,
+      /* Indicator of whether the pre-prepare message has a valid client signature.
+       * In Byzantine mode, the server will rewrite the value of the message with the
+       * character 'b', and overwrite the digest, before sending the pre-prepare.
+       * In doing this, assuming the server cannot subvert the cryptographic
+       * techniques used, the client signature which was attached to the original
+       * message (see section 4.2 of the PBFT paper, http://pmg.csail.mit.edu/papers/osdi99.pdf)
+       * becomes invalid for the rewritten message contents in the pre-prepare.
+       * Instead of computing signatures using real keys, the he flag
+       * `hasValidClientSignature` indicates this condition for demonstration
+       * purposes, and is used to check later whether a server should accept a
+       * pre-prepare message (see handlePrePrepareRequest). */
       hasValidClientSignature: !server.isInByzantineMode,
       /* Digest of the message which is part of the validation on receiver. */
       d: hashCode(message),
