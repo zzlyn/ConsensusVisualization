@@ -389,6 +389,16 @@ var handlePrePrepareRequest = function(model, server, request) {
   }
 
   server.acceptedPrePrepares[request.v][request.n].push(request);
+  var msg = request.v + "," + request.n + "," + request.m;
+  server.log.push({v: request.v, n: request.n, m: msg, status: "pre-prepared"});
+  server.log.sort((a, b) => {
+    // Order log messages by (v, n) tuple
+    if (a.v == b.v) {
+      return a.n - b.n;
+    } else {
+      return a.v - b.v;
+    }
+  });
 };
 
 rules.sendPrepares = function(model, server, peer) {
@@ -492,6 +502,13 @@ rules.startCommit = function(model, server) {
         (server.preparedMessagesToCommit[server.view][n].length == 0)) {
       var requestToCommit = getFirstRequest(requests)[0];
       server.preparedMessagesToCommit[server.view][n].push(requestToCommit);
+      server.log.forEach(function(entry) {
+        if (entry.v === requestToCommit.v && n == requestToCommit.n) {
+          if (entry.status == "pre-prepared") {
+            entry.status = "prepared"
+          }
+        }
+      });
     }
   }
 };
@@ -624,16 +641,12 @@ rules.addCommitsToLog = function(model, server) {
         }
       }
 
-      var msg = rq.v + "," + rq.n + "," + m;
-      server.log.push({v: rq.v, n: rq.n, m: msg});
-      server.log.sort((a, b) => {
-        // Order log messages by (v, n) tuple
-        if (a.v == b.v) {
-          return a.n - b.n;
-        } else {
-          return a.v - b.v;
+      server.log.forEach(function(entry) {
+        if (entry.v === rq.v && entry.n == rq.n) {
+          entry.status = "committed"
         }
       });
+      var msg = rq.v + "," + rq.n + "," + m;
       server.pushedLogMessages[server.view][n].push(msg);
 
       var reply = {
@@ -1537,12 +1550,14 @@ pbft.appendServerInfo = function(state, svg) {
 }
 
 // Public function.
-pbft.render.entry = function(spec, entry, committed) {
+pbft.render.entry = function(spec, entry) {
+  var prepared = entry.status == 'prepared';
+  var committed = entry.status == 'committed';
   return util.SVG('g')
-    .attr('class', 'entry ' + (committed ? 'committed' : 'uncommitted'))
+    .attr('class', 'entry ' + ( committed ? 'committed' : 'uncommitted'))
     .append(util.SVG('rect')
       .attr(spec)
-      .attr('stroke-dasharray', committed ? '1 0' : '5 5')
+      .attr('stroke-dasharray', committed ? '1 0' : prepared ? '5 5' : '0 1')
       .attr('style', 'fill: ' + viewColors[entry.v % viewColors.length]))
     .append(util.SVG('text')
       .attr({x: spec.x + spec.width / 2,
@@ -1637,8 +1652,7 @@ pbft.render.logs = function(svg, model) {
       var index = i + 1;
         log.append(pbft.render.entry(
              logEntrySpec(index),
-             entry,
-             index <= server.lastUsedSequenceNumber));
+             entry));
     });
     if (leader !== null && leader != server) {
       // log.append(
